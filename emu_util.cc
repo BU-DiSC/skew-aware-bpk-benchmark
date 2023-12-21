@@ -43,12 +43,15 @@ Status CloseDB(DB *&db, const FlushOptions &flush_op) {
 	s = db->Flush(flush_op);
 	assert(s.ok());
 	
-	if (FlushMemTableMayAllComplete(db)
-		 && (db->GetOptions().disable_auto_compactions == true || 
+    if (FlushMemTableMayAllComplete(db)) {
+        return_status = Status::OK();
+    }
+
+	if ((db->GetOptions().disable_auto_compactions == true || 
      (db->GetOptions().disable_auto_compactions == false && CompactionMayAllComplete(db)))) {
 		return_status = Status::OK();
 	}
-  
+
 	s = db->Close();
 	assert(s.ok());
 	delete db;
@@ -204,6 +207,7 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
           }
         if (i == 0) {
           std::string cmd = "cp " + _env->path + "/" + filename + " " + _env->path + "-monkey/" + filename;
+          system(cmd.c_str());
         } else {
           Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-monkey/" + filename, op, env_op, read_op);
           if (!s.ok()) std::cout << s.ToString() << std::endl;
@@ -423,16 +427,16 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
       uint32_t num_entries_by_level = 0 ;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
-        std::cout << "level " << i << "\tfileID:" << level_file->fd.GetNumber() << std::endl;
+        //std::cout << "level " << i << "\tfileID:" << level_file->fd.GetNumber() << std::endl;
         auto iter = fileID2bpk.find(level_file->fd.GetNumber());
         if (iter == fileID2bpk.end()) {
           bits_per_key = 0.0;
-          std::cout << " bitsPerKey : 0.0" << std::endl;
+          //std::cout << " bitsPerKey : 0.0" << std::endl;
           table_op->filter_policy.reset();
           objective_value += db_stats.fileID2empty_queries.at(iter->first);
         } else {
           bits_per_key = iter->second;
-          std::cout << " bitsPerKey : " << iter->second << std::endl;
+          //std::cout << " bitsPerKey : " << iter->second << std::endl;
           max_bpk = std::max(bits_per_key, max_bpk);
           if (bits_per_key > 0.0) min_bpk = std::min(bits_per_key, min_bpk);
           table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));

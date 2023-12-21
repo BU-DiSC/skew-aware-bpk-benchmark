@@ -136,7 +136,7 @@ int runExperiments(EmuEnv* _env) {
     
     s = CloseDB(db, flush_options);
 	  assert(s.ok());
-    options.disable_auto_compactions = true;
+    
 	  s= DB::Open(options, _env->path, &db);
     assert(s.ok());
     db->GetOptions().statistics->Reset();
@@ -225,7 +225,7 @@ int runExperiments(EmuEnv* _env) {
     //std::cout << " Total number of SST files: " << db_stats.num_files << std::endl;
     //std::cout << " Total number of entries (including point tombstones): " << db_stats.num_entries << std::endl;
     //std::cout << " Total number of false positive queries: " << db_stats.num_total_empty_queries << std::endl;
-  
+    options.disable_auto_compactions = true;
     createDbWithMonkey(_env, db, db_monkey, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, db_stats);
     ReopenDB(db_monkey, options, flush_options);
     get_iostats_context()->Reset();
@@ -407,7 +407,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->path = path_cmd ? args::get(path_cmd) : kDBPath;
   _env->ingestion_wpath = ingestion_wpath_cmd ? args::get(ingestion_wpath_cmd) : ingestion_workloadPath;
   _env->query_wpath = query_wpath_cmd ? args::get(query_wpath_cmd) : query_workloadPath;
-  _env->num_levels = num_levels_cmd ? args::get(num_levels_cmd) : 6;
+  _env->num_levels = num_levels_cmd ? args::get(num_levels_cmd) : 7;
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
