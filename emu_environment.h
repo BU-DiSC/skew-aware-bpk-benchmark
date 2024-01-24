@@ -38,6 +38,7 @@ public:
   bool clear_sys_page_cache;              // cc | clear system page cache before experiment
   bool destroy;                           // dd | destroy db before experiments
   bool use_direct_reads;                  // dr
+  bool use_direct_io_for_flush_and_compaction; // dw
   bool low_pri;                           // lp. If true, this write request is of lower priority if compaction is behind.
 
   uint32_t level0_file_num_compaction_trigger;
@@ -57,7 +58,7 @@ public:
   bool create_if_missing = true;
   bool allow_write_stall;
   bool level_compaction_dynamic_level_bytes = true;
-  //rocksdb::BitsPerKeyAllocationType bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kBpkDefault;
+  rocksdb::BitsPerKeyAllocationType bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kDefaultBpkAlloc;
 
   // database path 
   string path;

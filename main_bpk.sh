@@ -7,9 +7,9 @@ do
 	cd /scratchHDDa/zczhu/K-V-Workload-Generator/
 	./bpk_workload.sh
 	cd -
-	./exp.sh
+	./exp_bpk.sh
 	mkdir -p "output${i}"
 	mv output/*.txt output${i}/
 done
-mkdir -p "agg_output/"
-python3 merge.py ${runs} agg_output/
+mkdir -p "agg_output_by_bpk/"
+python3 merge_by_bpk.py ${runs} agg_output_by_bpk/

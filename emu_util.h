@@ -35,7 +35,8 @@ Status CloseDB(DB *&db, const FlushOptions &flush_op);
 Status ReopenDB(DB *&db, const Options &op, const FlushOptions &flush_op);
 
 bool CompactionMayAllComplete(DB *db);
-bool FlushMemTableMayAllComplete(DB *db);
+bool FlushMemTableMayAllComplete(DB *db); 
+Status BackgroundJobMayAllCompelte(DB *&db);
 
 Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, Options *op,
   EnvOptions *env_op, ReadOptions *read_op);
@@ -48,16 +49,17 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal,Options *op
 
 
 // Other helper functions
+void printBFBitsPerKey(DB *db);
 
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_t n = 1);
 
 void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, WriteOptions *write_op, ReadOptions *read_op, FlushOptions *flush_op);
 
-void populateQueryTracker(QueryTracker *track, DB *_db);
+void populateQueryTracker(QueryTracker *track, DB *_db, const BlockBasedTableOptions& table_options, EmuEnv* _env);
 
 void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track);
 
-void printNoLevel0BFStatistics(uint32_t num_levels);
+uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity);
 
 void dump_query_stats(const DbStats & db_stats, const std::string & path);
 

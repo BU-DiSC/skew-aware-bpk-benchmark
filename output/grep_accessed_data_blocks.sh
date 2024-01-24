@@ -5,7 +5,7 @@ echo uniform
 grep "accessed data blocks:" *output.txt | grep ${str} | awk -F':' '{print $3}'
 echo monkey
 grep "accessed data blocks (monkey):" *output.txt | grep ${str} | awk -F':' '{print $3}'
-echo "monkey+"
-grep "accessed data blocks (monkey+):" *output.txt | grep ${str} | awk -F':' '{print $3}'
+#echo "monkey+"
+#grep "accessed data blocks (monkey+):" *output.txt | grep ${str} | awk -F':' '{print $3}'
 echo "optimal"
-grep "accessed data blocks (optimal):" *output.txt | grep ${str} | awk -F':' '{print $3}'
+grep "accessed data blocks (workloadaware):" *output.txt | grep ${str} | awk -F':' '{print $3}'

@@ -1,3 +1,8 @@
 bpk_benchmark
+bpk_benchmark_debug
+plain_benchmark
+plain_benchmark_debug
 *.txt
 db_working_home*
+.vscode/
+output/*.txt

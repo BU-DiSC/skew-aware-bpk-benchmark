@@ -1,8 +1,3 @@
-/*
- *  Created on: Oct 9, 2019
- *  Author: Guanting Chen
- */
-
 #include "emu_util.h"
 
 #include <fstream>
@@ -27,6 +22,8 @@
 #include "sys/times.h"
 #include "sys/vtimes.h"
 
+#define WAIT_INTERVAL 100
+
 Status ReopenDB(DB *&db, const Options &op, const FlushOptions &flush_op) {
 	const std::string dbPath = db->GetName();
 	Status s = CloseDB(db, flush_op);
@@ -37,20 +34,32 @@ Status ReopenDB(DB *&db, const Options &op, const FlushOptions &flush_op) {
 	return return_status;
 }
 
-Status CloseDB(DB *&db, const FlushOptions &flush_op) {
-	Status s = db->DropColumnFamily(db->DefaultColumnFamily());
-	Status return_status = Status::Incomplete();
-	s = db->Flush(flush_op);
-	assert(s.ok());
-	
-    if (FlushMemTableMayAllComplete(db)) {
-        return_status = Status::OK();
-    }
+Status BackgroundJobMayAllCompelte(DB *&db) {
+  Status return_status = Status::Incomplete();
+  if (FlushMemTableMayAllComplete(db)) {
+    return_status = Status::OK();
+  }
 
 	if ((db->GetOptions().disable_auto_compactions == true || 
      (db->GetOptions().disable_auto_compactions == false && CompactionMayAllComplete(db)))) {
 		return_status = Status::OK();
 	}
+
+  if (((static_cast_with_check<DBImpl, DB>(db->GetRootDB())))->TEST_WaitForBackgroundWork()
+    == Status::OK()){
+    return_status = Status::OK();
+  }
+  return return_status;
+}
+
+Status CloseDB(DB *&db, const FlushOptions &flush_op) {
+	Status s = db->DropColumnFamily(db->DefaultColumnFamily());
+	
+	s = db->Flush(flush_op);
+	assert(s.ok());
+	
+  s = BackgroundJobMayAllCompelte(db);
+  assert(s.ok());
 
 	s = db->Close();
 	assert(s.ok());
@@ -79,13 +88,14 @@ bool CompactionMayAllComplete(DB *db) {
 	bool success = db->GetIntProperty("rocksdb.compaction-pending", &pending_compact)
 	 						 && db->GetIntProperty("rocksdb.estimate-pending-compaction-bytes", &pending_compact_bytes)
 							 && db->GetIntProperty("rocksdb.num-running-compactions", &running_compact);
-	while (pending_compact || pending_compact_bytes || running_compact || !success) {
-		sleep_for_ms(200);
-		success = db->GetIntProperty("rocksdb.compaction-pending", &pending_compact)
+  do {
+    sleep_for_ms(WAIT_INTERVAL);
+    success = db->GetIntProperty("rocksdb.compaction-pending", &pending_compact)
 	 						 && db->GetIntProperty("rocksdb.estimate-pending-compaction-bytes", &pending_compact_bytes)
 							 && db->GetIntProperty("rocksdb.num-running-compactions", &running_compact);
-	}
-	return true;
+
+  } while (pending_compact || pending_compact_bytes || running_compact || !success);
+	return ((static_cast_with_check<DBImpl, DB>(db->GetRootDB()))->TEST_WaitForCompact()) == Status::OK();
 }
 
 // Need to select timeout carefully
@@ -95,11 +105,11 @@ bool FlushMemTableMayAllComplete(DB *db) {
 	uint64_t running_flush;
 	bool success = db->GetIntProperty("rocksdb.mem-table-flush-pending", &pending_flush)
 							 && db->GetIntProperty("rocksdb.num-running-flushes", &running_flush);
-	while (pending_flush || running_flush || !success) {
-		sleep_for_ms(200);
-		success = db->GetIntProperty("rocksdb.mem-table-flush-pending", &pending_flush)
+  do {
+    sleep_for_ms(WAIT_INTERVAL);
+    success = db->GetIntProperty("rocksdb.mem-table-flush-pending", &pending_flush)
 							 && db->GetIntProperty("rocksdb.num-running-flushes", &running_flush);
-	}
+  } while (pending_flush || running_flush || !success);
 	return ((static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
       		->WaitForFlushMemTable(static_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd())) == Status::OK();
 }
@@ -181,6 +191,9 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
   std::vector<std::string> filenames;
   uint64_t used_memory = 0;
   double objective_value = 0.0;
+
+  std::string create_temp_dir_cmd = "mkdir -p " + _env->path + "-temp/";
+  system(create_temp_dir_cmd.c_str());
   for (int i = 0; i < cfd->NumberLevels(); i++) {
       if (vstorage->LevelFiles(i).empty()){
         continue;
@@ -192,7 +205,11 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
       double bits_per_key = 0;
       if (i != 0) {
         bits_per_key = bpk_by_level[i];
-        table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+        if (bits_per_key <= 0.5) {
+          table_op->filter_policy.reset();
+        } else {
+          table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+        }
         op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
       } 
       
@@ -206,14 +223,14 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
             objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber())*std::exp(-log_2_squared*bits_per_key);
           }
         if (i == 0) {
-          std::string cmd = "cp " + _env->path + "/" + filename + " " + _env->path + "-monkey/" + filename;
+          std::string cmd = "cp " + _env->path + "/" + filename + " " + _env->path + "-temp/" + filename;
           system(cmd.c_str());
         } else {
-          Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-monkey/" + filename, op, env_op, read_op);
+          Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
           if (!s.ok()) std::cout << s.ToString() << std::endl;
         }
         num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
-        filenames.push_back(_env->path + "-monkey/" + filename);
+        filenames.push_back(_env->path + "-temp/" + filename);
       }
       ingest_opts.picked_level = i;
       db_monkey->IngestExternalFile(filenames, ingest_opts);
@@ -221,8 +238,15 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
       used_memory += (uint64_t) bits_per_key*num_entries_by_level;
       level_counter++;
     }
-    std::cout << "Objective Value : " << objective_value << std::endl;
+  
+  table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
+  op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
+
+  std::cout << "Objective Value : " << objective_value << std::endl;
   std::cout << "Used memory: " << used_memory << std::endl;
+
+  std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
+  system(delete_temp_dir_cmd.c_str());
   return Status::OK();
 }
 
@@ -254,7 +278,7 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
   }
   if (entries_with_levelID.size() <= 1) return Status::OK();
   const double log_2_squared = std::pow(std::log(2), 2);
-  double log_C = -(total_filter_memory*log_2_squared + S) / (double)db_stats.num_entries;
+  double C = -(total_filter_memory*log_2_squared + S) / (double)db_stats.num_entries;
   std::sort(entries_with_levelID.begin(), entries_with_levelID.end(), std::greater<pair<uint64_t, uint64_t>>());
   
   // we use dual optimization and linear to find the number of non-filitered levels Y.
@@ -262,17 +286,17 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
   uint64_t Y = 0;
   uint64_t remaining_entries = db_stats.num_entries;
   
-  while (std::log(entries_with_levelID[Y].first) + log_C > 0.0 && Y < entries_with_levelID.size()) {
+  while (std::log(entries_with_levelID[Y].first) + C > -log_2_squared && Y < entries_with_levelID.size()) {
     Y++;
     S -= std::log(entries_with_levelID[Y].first)*entries_with_levelID[Y].first;
     remaining_entries -= entries_with_levelID[Y].first;
-    log_C = -std::log((total_filter_memory*log_2_squared + S) / remaining_entries);
+    C = -(total_filter_memory*log_2_squared + S) / remaining_entries;
   }
   if (Y == entries_with_levelID.size()) return Status::OK();
  
   std::vector<double> bpk_by_level = std::vector<double> (last_level_with_entries + db_stats.entries_in_level0.size() + 1, 0.0);
   for (uint64_t i = Y; i < entries_with_levelID.size(); i++) {
-    bpk_by_level[entries_with_levelID[i].second] = -(log_C + std::log(entries_with_levelID[i].first))/log_2_squared;
+    bpk_by_level[entries_with_levelID[i].second] = -(C + std::log(entries_with_levelID[i].first))/log_2_squared;
   }
   DBImpl::GetImplOptions get_impl_options;
   get_impl_options.column_family = db->DefaultColumnFamily();
@@ -285,6 +309,8 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
   ingest_opts.move_files = true;
   std::vector<std::string> filenames;
   double objective_value = 0.0;
+  std::string create_temp_dir_cmd = "mkdir -p " + _env->path + "-temp/";
+  system(create_temp_dir_cmd.c_str());
   for (int i = 0; i < cfd->NumberLevels(); i++) {
       if (vstorage->LevelFiles(i).empty()){
         continue;
@@ -296,7 +322,11 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
       double bits_per_key = 0;
       if (i != 0) {
         bits_per_key = bpk_by_level[i];
-        table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+        if (bits_per_key <= 0.5) {
+          table_op->filter_policy.reset();
+        } else {
+          table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+        }
         op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
       }
       
@@ -304,7 +334,11 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
       for (uint32_t j = 0; j < level_files.size(); j++) {
         if (i == 0) {
           bits_per_key = bpk_by_level[j + last_level_with_entries + 1];
-          table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+          if (bits_per_key <= 0.5) {
+            table_op->filter_policy.reset();
+          } else {
+            table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+          }
           op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
           std::cout << "Level 0: " << j << " file bpk: " << bits_per_key << std::endl;
         }
@@ -316,16 +350,23 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
             objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber())*std::exp(-log_2_squared*bits_per_key);
           }
         num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
-        Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-monkey-plus/" + filename, op, env_op, read_op);
+        Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
         if (!s.ok()) std::cout << s.ToString() << std::endl;
-        filenames.push_back(_env->path + "-monkey-plus/" + filename);
+        filenames.push_back(_env->path + "-temp/" + filename);
       }
       ingest_opts.picked_level = i;
       db_monkey_plus->IngestExternalFile(filenames, ingest_opts);
       std::cout << "level " << i << " bits_per_key : " << bits_per_key << " \t bits : " << bits_per_key*num_entries_by_level << " false positive rate : " << 100*exp(-log_2_squared*bits_per_key) << "%" << std::endl;
       level_counter++;
     }
+  
+  table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
+  op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
+
   std::cout << "Objective Value : " << objective_value << std::endl;
+
+  std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
+  system(delete_temp_dir_cmd.c_str());
   return Status::OK();
 }
 
@@ -368,8 +409,8 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
   unordered_map<uint64_t, double> fileID2bpk;
   // fileID with no bpk will also be stored in fileIDwithNobpk
   unordered_set<uint64_t> fileIDwithNobpk;
-  // Calculating S = \sum (ln z_i / n_i) * z_i
-  while (!entries_over_empty_with_fileID.empty() && std::log(entries_over_empty_with_fileID.top().first*num_total_empty_queries) + C > 0.0) {
+  // Calculating S = \sum (ln n_i / z_i) * n_i
+  while (!entries_over_empty_with_fileID.empty() && std::log(entries_over_empty_with_fileID.top().first*num_total_empty_queries) + C > -log_2_squared) {
      uint64_t fileID = entries_over_empty_with_fileID.top().second;
      S -= std::log(entries_over_empty_with_fileID.top().first*num_total_empty_queries*1.0)*db_stats.fileID2entries.at(fileID);
      num_entries_with_empty_queries -= db_stats.fileID2entries.at(fileID);
@@ -396,7 +437,6 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
     }
   }
   
-  
   DBImpl::GetImplOptions get_impl_options;
   get_impl_options.column_family = db->DefaultColumnFamily();
   auto cfh = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(get_impl_options.column_family);
@@ -412,58 +452,94 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
   double min_bpk = std::numeric_limits<double>::max();
   double max_bpk = 0.0;  
   double objective_value = 0.0;
-  for (int i = 0; i < cfd->NumberLevels(); i++) {
-      point_reads_by_level = 0;
-      existing_point_reads_by_level = 0;
-      if (vstorage->LevelFiles(i).empty()){
-        continue;
-      }
-      filenames.clear();
-      //std::cout << i << std::endl;
-      std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
-      FileMetaData* level_file;
-      double bits_per_key = 0;
-          
-      uint32_t num_entries_by_level = 0 ;
-      for (uint32_t j = 0; j < level_files.size(); j++) {
-        level_file = level_files[j];
-        //std::cout << "level " << i << "\tfileID:" << level_file->fd.GetNumber() << std::endl;
-        auto iter = fileID2bpk.find(level_file->fd.GetNumber());
-        if (iter == fileID2bpk.end()) {
-          bits_per_key = 0.0;
-          //std::cout << " bitsPerKey : 0.0" << std::endl;
-          table_op->filter_policy.reset();
-          objective_value += db_stats.fileID2empty_queries.at(iter->first);
-        } else {
-          bits_per_key = iter->second;
-          //std::cout << " bitsPerKey : " << iter->second << std::endl;
-          max_bpk = std::max(bits_per_key, max_bpk);
-          if (bits_per_key > 0.0) min_bpk = std::min(bits_per_key, min_bpk);
-          table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
-          objective_value += db_stats.fileID2empty_queries.at(iter->first)*std::exp(-log_2_squared*bits_per_key);
-        }
 
-        total_memory_used += bits_per_key * level_file->num_entries;
-	      point_reads_by_level += level_files[j]->stats.num_point_reads.load(std::memory_order_relaxed);
-	      existing_point_reads_by_level += level_files[j]->stats.num_existing_point_reads.load(std::memory_order_relaxed);
-        
-        op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
-        std::string filename = MakeTableFileName(level_file->fd.GetNumber());
-        num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
-        Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-optimal/" + filename, op, env_op, read_op);
-        if (!s.ok()) std::cout << s.ToString() << std::endl;
-        filenames.push_back(_env->path + "-optimal/" + filename);
-      }
-      ingest_opts.picked_level = i;
-      std::cout << " Level " << i << " access frequencies : num_point_reads (" << point_reads_by_level << "), num_tp_reads (" << existing_point_reads_by_level << ")" << std::endl;
-      db_optimal->IngestExternalFile(filenames, ingest_opts);
-      level_counter++;
+  std::string create_temp_dir_cmd = "mkdir -p " + _env->path + "-temp/";
+  system(create_temp_dir_cmd.c_str());
+  for (int i = 0; i < cfd->NumberLevels(); i++) {
+    point_reads_by_level = 0;
+    existing_point_reads_by_level = 0;
+    if (vstorage->LevelFiles(i).empty()){
+      continue;
     }
-    std::cout << "Objective Value : " << objective_value << std::endl;
-    std::cout << "Total memory used : " << total_memory_used << std::endl;
-    std::cout << "Maximum bpk : " << max_bpk << std::endl;
-    std::cout << "Minimum bpk : " << min_bpk << std::endl;
+    filenames.clear();
+    //std::cout << i << std::endl;
+    std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
+    FileMetaData* level_file;
+    double bits_per_key = 0;
+        
+    uint32_t num_entries_by_level = 0 ;
+    for (uint32_t j = 0; j < level_files.size(); j++) {
+      level_file = level_files[j];
+      //std::cout << "level " << i << "\tfileID:" << level_file->fd.GetNumber() << std::endl;
+      auto iter = fileID2bpk.find(level_file->fd.GetNumber());
+      if (iter == fileID2bpk.end() || iter->second <= 0.5) {
+        bits_per_key = 0.0;
+        //std::cout << " bitsPerKey : 0.0" << std::endl;
+        table_op->filter_policy.reset();
+        objective_value += db_stats.fileID2empty_queries.at(iter->first);
+      } else {
+        bits_per_key = iter->second;
+        //std::cout << " bitsPerKey : " << iter->second << std::endl;
+        max_bpk = std::max(bits_per_key, max_bpk);
+        min_bpk = std::min(bits_per_key, min_bpk);
+        table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+        objective_value += db_stats.fileID2empty_queries.at(iter->first)*std::exp(-log_2_squared*bits_per_key);
+      }
+      total_memory_used += bits_per_key * level_file->num_entries;
+	    point_reads_by_level += level_files[j]->stats.num_point_reads.load(std::memory_order_relaxed);
+	    existing_point_reads_by_level += level_files[j]->stats.num_existing_point_reads.load(std::memory_order_relaxed);
+      
+      op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
+      std::string filename = MakeTableFileName(level_file->fd.GetNumber());
+      num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
+      Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
+      if (!s.ok()) std::cout << s.ToString() << std::endl;
+      filenames.push_back(_env->path + "-temp/" + filename);
+    }
+    ingest_opts.picked_level = i;
+    std::cout << " Level " << i << " access frequencies : num_point_reads (" << point_reads_by_level << "), num_tp_reads (" << existing_point_reads_by_level << ")" << std::endl;
+    db_optimal->IngestExternalFile(filenames, ingest_opts);
+    level_counter++;
+  }
+
+  table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
+  op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
+
+  std::cout << "Objective Value : " << objective_value << std::endl;
+  std::cout << "Total memory used : " << total_memory_used << std::endl;
+  std::cout << "Maximum bpk : " << max_bpk << std::endl;
+  std::cout << "Minimum bpk : " << min_bpk << std::endl;
+
+  std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
+  system(delete_temp_dir_cmd.c_str());
   return Status::OK();
+}
+
+void printBFBitsPerKey(DB *db) {
+  DBImpl::GetImplOptions get_impl_options;
+  get_impl_options.column_family = db->DefaultColumnFamily();
+  auto cfh = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(get_impl_options.column_family);
+  auto cfd = cfh->cfd();
+  const auto* vstorage = cfd->current()->storage_info();
+    
+  uint32_t num_general_levels = cfd->NumberLevels();
+  for (int i = 0; i < num_general_levels; i++) {
+    if (vstorage->LevelFiles(i).empty()){
+      continue;
+    }
+    std::cout << " Level " << i << " : "; 
+    std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
+    FileMetaData* level_file;
+    for (uint32_t j = 0; j < level_files.size(); j++) {
+      level_file = level_files[j];
+      uint64_t filenumber = level_file->fd.GetNumber();
+      std::string filename = MakeTableFileName(filenumber);
+      if (level_file->bpk != -1) {
+        std::cout << filename << "(" << level_file->bpk << ", " << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") ";
+      }
+    }
+    std::cout << std::endl;
+  }
 }
 
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_t runs) {
@@ -643,12 +719,14 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
     std::cout << std::setfill(' ') << std::setw(l) << "bloom_accesses" << std::setfill(' ') << std::setw(l) 
                                                   << "index_accesses" << std::setfill(' ') << std::setw(l)
                                                   << "filter_blk_hit" << std::setfill(' ') << std::setw(l)
-                                                  << "index_blk_hit" << std::setfill(' ') << std::setw(l);
+                                                  << "index_blk_hit" << std::setfill(' ') << std::setw(l)
+                                                  << "accessed_data_blks" << std::setfill(' ') << std::setw(l);
     std::cout << std::endl;
     std::cout << std::setfill(' ') << std::setw(l) << track->filter_block_read_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->index_block_read_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_filter_hit_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_index_hit_count/runs;
+    std::cout << std::setfill(' ') << std::setw(l) << track->data_block_read_count/runs;
     std::cout << std::endl;
 
     std::cout << std::setfill(' ') << std::setw(l) << "read_bytes" << std::setfill(' ') << std::setw(l)
@@ -690,6 +768,7 @@ void dump_query_stats(const DbStats & db_stats, const std::string & path) {
 void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, WriteOptions *write_op, ReadOptions *read_op, FlushOptions *flush_op) {
     // Experiment settings
     _env->experiment_runs = (_env->experiment_runs >= 1) ? _env->experiment_runs : 1;
+
     // *op = Options();
     op->write_buffer_size = _env->buffer_size; 
 
@@ -722,6 +801,7 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
   //Other DBOptions
   op->create_if_missing = _env->create_if_missing;
   op->use_direct_reads = _env->use_direct_reads;
+  op->use_direct_io_for_flush_and_compaction = _env->use_direct_io_for_flush_and_compaction;
   op->level0_file_num_compaction_trigger = _env->level0_file_num_compaction_trigger;
 
   //TableOptions
@@ -764,7 +844,7 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
 
 }
 
-void populateQueryTracker(QueryTracker *query_track, DB* _db) {
+void populateQueryTracker(QueryTracker *query_track, DB* _db, const BlockBasedTableOptions& table_options, EmuEnv* _env) {
   query_track->workload_exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;
@@ -773,8 +853,6 @@ void populateQueryTracker(QueryTracker *query_track, DB* _db) {
   query_track->get_from_output_files_time += get_perf_context()->get_from_output_files_time;
   query_track->filter_block_read_count += get_perf_context()->filter_block_read_count;
   query_track->index_block_read_count += get_perf_context()->index_block_read_count;
-  query_track->data_block_read_count += _db->GetOptions().statistics->getTickerCount(BLOCK_CACHE_DATA_MISS) +
-                                    _db->GetOptions().statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
   query_track->block_cache_filter_hit_count += get_perf_context()->block_cache_filter_hit_count;
   query_track->block_cache_index_hit_count += get_perf_context()->block_cache_index_hit_count;
   query_track->bloom_memtable_hit_count += get_perf_context()->bloom_memtable_hit_count;
@@ -815,6 +893,13 @@ void populateQueryTracker(QueryTracker *query_track, DB* _db) {
   std::cout << "rocksdb.estimate-table-readers-mem:" << table_readers_mem << std::endl;
   query_track->read_table_mem += atoi(table_readers_mem.c_str());
   std::cout << std::endl;
+
+  // block cache
+  if(table_options.block_cache){
+    query_track->block_cache_usage += table_options.block_cache->GetUsage();
+  }
+
+  query_track->data_block_read_count += GetTotalUsedDataBlocks(_env->num_levels, _env->verbosity);
 }
 
 void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track){
@@ -1068,28 +1153,34 @@ int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBased
   return 0;
 }
 
-void printNoLevel0BFStatistics(uint32_t num_levels) {
-  if (num_levels == 1) return;
+uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity) {
+  if (num_levels == 1) return 0;
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   if (get_perf_context()->level_to_perf_context != nullptr) {
     level_to_perf_context = get_perf_context()->level_to_perf_context;
   }
-  if (level_to_perf_context == nullptr) return;
+  if (level_to_perf_context == nullptr) {
+    return 0;
+  }
   PerfContextByLevel perf_context_single_level; 
   uint64_t total_used_data_blocks = 0;
   uint64_t total_false_positives = 0;
-  for (uint32_t i = 1; i < num_levels; i++) {
+  for (uint32_t i = 0; i < num_levels; i++) {
     if (level_to_perf_context->find(i) != level_to_perf_context->end()) {
       perf_context_single_level = level_to_perf_context->at(i);	  
-      std::cout << " Level " << i << ": ";
       total_used_data_blocks += perf_context_single_level.used_data_block_count;
-      std::cout << " used data blocks (" << perf_context_single_level.used_data_block_count << ") ";
       total_false_positives += perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive;
-      std::cout << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << std::endl;
+      if (verbosity > 0) {
+        std::cout << " Level " << i << ": ";
+        std::cout << " used data blocks (" << perf_context_single_level.used_data_block_count << ") ";
+        std::cout << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << std::endl;
+      }
     }
   }
-  std::cout << "Tree : total used data blocks (" << total_used_data_blocks << ") " << " total false positves (" << total_false_positives << ")." << std::endl;
-  
+  if (verbosity > 0) {
+    std::cout << "Tree : total used data blocks (" << total_used_data_blocks << ") " << " total false positves (" << total_false_positives << ")." << std::endl;
+  }
+  return total_used_data_blocks;
 }
 
 
