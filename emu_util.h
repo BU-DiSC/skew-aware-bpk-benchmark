@@ -38,8 +38,11 @@ bool CompactionMayAllComplete(DB *db);
 bool FlushMemTableMayAllComplete(DB *db); 
 Status BackgroundJobMayAllCompelte(DB *&db);
 
-Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, Options *op,
-  EnvOptions *env_op, ReadOptions *read_op);
+void resetPointReadsStats(DB* db);
+
+void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats = false, uint64_t start_global_point_read_number=0, double learning_rate=1.0);
+Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, const Options *op,
+  EnvOptions *env_op, const ReadOptions *read_op);
 Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
   ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
 Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
@@ -63,10 +66,13 @@ uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity);
 
 void dump_query_stats(const DbStats & db_stats, const std::string & path);
 
-int runWorkload(DB* _db, const EmuEnv* _env, const Options *op,
+void print_point_read_stats_distance_collector(std::vector<SimilarityResult >* point_reads_statistics_distance_collector);
+
+int runWorkload(DB* _db, const EmuEnv* _env, Options *op,
                 const BlockBasedTableOptions *table_op, const WriteOptions *write_op, 
-                const ReadOptions *read_op, const FlushOptions *flush_op,
-                const WorkloadDescriptor *wd, QueryTracker *query_track);   // run_workload internal
+                const ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions* env_op, 
+                const WorkloadDescriptor *wd, QueryTracker *query_track,
+                std::vector<SimilarityResult >* point_reads_statistics_distance_collector = nullptr);   // run_workload internal
 
 // utilities for cpu usage measuring COPIED FROM "https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process"
 struct CpuUsage {

@@ -1,5 +1,144 @@
 #include "workload_stats.h"
 
+std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStats& stats1, DbStats& stats2) {
+  double agg_num_point_queries_distance = 0.0;
+  double agg_num_empty_point_queries_distance = 0.0;
+
+  double stats1_num_point_queries_vector_length = 0;
+  double stats1_num_empty_point_queries_vector_length = 0;
+  double stats2_num_point_queries_vector_length = 0;
+  double stats2_num_empty_point_queries_vector_length = 0;
+  for(auto iter = stats1.fileID2queries.begin(); iter != stats1.fileID2queries.end(); iter++) {
+    if (stats2.fileID2queries.find(iter->first) != stats2.fileID2queries.end()) {
+      agg_num_point_queries_distance += iter->second*stats2.fileID2queries[iter->first];
+    }
+    stats1_num_point_queries_vector_length += iter->second*iter->second;
+  }
+
+  for(auto iter = stats1.fileID2empty_queries.begin(); iter != stats1.fileID2empty_queries.end(); iter++) {
+    if (stats2.fileID2empty_queries.find(iter->first) != stats2.fileID2empty_queries.end()) {
+      agg_num_empty_point_queries_distance += iter->second*stats2.fileID2empty_queries[iter->first];
+    }
+    stats1_num_empty_point_queries_vector_length += iter->second*iter->second;
+  }
+
+
+  for(auto iter = stats2.fileID2queries.begin(); iter != stats2.fileID2queries.end(); iter++) {
+    stats2_num_point_queries_vector_length += iter->second*iter->second;
+  }
+
+  for(auto iter = stats2.fileID2empty_queries.begin(); iter != stats2.fileID2empty_queries.end(); iter++) {
+    stats2_num_empty_point_queries_vector_length += iter->second*iter->second;
+  }
+
+  stats1_num_point_queries_vector_length = std::pow(stats1_num_point_queries_vector_length, 0.5);
+  stats1_num_empty_point_queries_vector_length = std::pow(stats1_num_empty_point_queries_vector_length, 0.5);
+  stats2_num_point_queries_vector_length = std::pow(stats2_num_point_queries_vector_length, 0.5);
+  stats2_num_empty_point_queries_vector_length = std::pow(stats2_num_empty_point_queries_vector_length, 0.5);
+
+  double num_point_queries_cosine_similarity = 0.0;
+  double num_empty_point_queries_cosine_similarity = 0.0;
+  if (stats1_num_point_queries_vector_length != 0 && stats2_num_point_queries_vector_length != 0){
+    num_point_queries_cosine_similarity = agg_num_point_queries_distance*1.0/stats1_num_point_queries_vector_length/stats2_num_point_queries_vector_length;
+  }
+  if (stats1_num_empty_point_queries_vector_length != 0 && stats2_num_empty_point_queries_vector_length != 0){
+    num_empty_point_queries_cosine_similarity = agg_num_empty_point_queries_distance*1.0/stats1_num_empty_point_queries_vector_length/stats2_num_empty_point_queries_vector_length;
+  }
+  return std::make_pair(num_point_queries_cosine_similarity, num_empty_point_queries_cosine_similarity);
+}
+
+std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseDistanceType(DbStats& stats1, DbStats& stats2, int distance_type) {
+  int num_levels = std::max(stats1.num_levels, stats2.num_levels);
+  DbStats temp_stats1;
+  DbStats temp_stats2;
+  double agg_num_point_reads_euclidean_distance = 0.0;
+  std::vector<std::pair<double, double>> result;
+  size_t j1 = 0;
+  size_t j2 = 0;
+  for(size_t i = 0; i < num_levels; i++) {
+    if (stats1.leveled_fileID2queries[j1].first == stats2.leveled_fileID2queries[j2].first) {
+      temp_stats1.fileID2queries = stats1.leveled_fileID2queries[i].second;
+      temp_stats2.fileID2queries = stats2.leveled_fileID2queries[i].second;
+      temp_stats1.fileID2empty_queries = stats1.leveled_fileID2empty_queries[i].second;
+      temp_stats2.fileID2empty_queries = stats2.leveled_fileID2empty_queries[i].second;
+      j1++;
+      j2++;
+    } else if (stats1.leveled_fileID2queries[j1].first < stats2.leveled_fileID2queries[j2].first) {
+      temp_stats1.fileID2queries = stats1.leveled_fileID2queries[j1].second;
+      temp_stats2.fileID2entries = std::unordered_map<uint64_t, uint64_t>();
+      temp_stats1.fileID2empty_queries = stats1.leveled_fileID2empty_queries[j1].second;
+      temp_stats2.fileID2empty_queries = std::unordered_map<uint64_t, uint64_t>();
+      j1++;
+    } else {
+      temp_stats2.fileID2queries = stats2.leveled_fileID2queries[j2].second;
+      temp_stats1.fileID2entries = std::unordered_map<uint64_t, uint64_t>();
+      temp_stats2.fileID2empty_queries = stats2.leveled_fileID2empty_queries[j2].second;
+      temp_stats1.fileID2empty_queries = std::unordered_map<uint64_t, uint64_t>();
+      j2++;
+    }
+    
+    if (distance_type == 1) {
+      result.push_back(ComputePointQueriesStatisticsByEuclideanDistance(temp_stats1, temp_stats2));
+    } else {
+      result.push_back(ComputePointQueriesStatisticsByCosineSimilarity(temp_stats1, temp_stats2));
+    }
+
+    if (result.back().first > 1000000) {
+      ComputePointQueriesStatisticsByEuclideanDistance(temp_stats1, temp_stats2);
+      agg_num_point_reads_euclidean_distance++;
+      agg_num_point_reads_euclidean_distance--;
+    }
+    
+    
+    
+  }  
+  return result;
+}
+
+std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbStats& stats1, DbStats& stats2) {
+  double agg_num_point_queries_distance = 0.0;
+  double agg_num_empty_point_queries_distance = 0.0;
+
+  for(auto iter = stats1.fileID2queries.begin(); iter != stats1.fileID2queries.end(); iter++) {
+    if (stats2.fileID2queries.find(iter->first) != stats2.fileID2queries.end()) {
+      uint64_t temp_num_point_queries = stats2.fileID2queries[iter->first];
+      if (iter->second != temp_num_point_queries) {
+        agg_num_point_queries_distance += std::pow((double)iter->second - (double)temp_num_point_queries, 2);
+      }
+    } else {
+      agg_num_point_queries_distance += std::pow(iter->second, 2);
+    }
+  }
+
+  for(auto iter = stats1.fileID2empty_queries.begin(); iter != stats1.fileID2empty_queries.end(); iter++) {
+    if (stats2.fileID2empty_queries.find(iter->first) != stats2.fileID2empty_queries.end()) {
+      uint64_t temp_num_empty_point_queries = stats2.fileID2empty_queries[iter->first];
+      if (iter->second != temp_num_empty_point_queries) {
+        agg_num_empty_point_queries_distance += std::pow((double)iter->second - (double)temp_num_empty_point_queries, 2);
+      }
+    } else {
+      agg_num_empty_point_queries_distance += std::pow(iter->second, 2);
+    }
+  }
+
+  for(auto iter = stats2.fileID2queries.begin(); iter != stats2.fileID2queries.end(); iter++) {
+    if (stats1.fileID2queries.find(iter->first) == stats1.fileID2queries.end()) {
+      agg_num_point_queries_distance += std::pow(iter->second, 2);
+    }
+  }
+
+  for(auto iter = stats2.fileID2empty_queries.begin(); iter != stats2.fileID2empty_queries.end(); iter++) {
+    if (stats1.fileID2empty_queries.find(iter->first) == stats1.fileID2empty_queries.end()) {
+      agg_num_empty_point_queries_distance += std::pow(iter->second, 2);
+    }
+  }
+
+  agg_num_point_queries_distance = std::pow(agg_num_point_queries_distance, 0.5);
+  agg_num_empty_point_queries_distance = std::pow(agg_num_empty_point_queries_distance, 0.5);
+
+  return std::make_pair(agg_num_point_queries_distance, agg_num_empty_point_queries_distance);
+}
+
 void loadWorkload(WorkloadDescriptor *wd) {
 	std::cout << "Loading workload ..." << std::endl;
   assert(wd != nullptr);

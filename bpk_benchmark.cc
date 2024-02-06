@@ -132,7 +132,7 @@ int runExperiments(EmuEnv* _env) {
     get_iostats_context()->Reset();
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     // Run workload
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &ingestion_wd, ingestion_query_track);
+    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
     
     s = CloseDB(db, flush_options);
 	  assert(s.ok());
@@ -140,18 +140,13 @@ int runExperiments(EmuEnv* _env) {
 	  s= DB::Open(options, _env->path, &db);
     assert(s.ok());
     db->GetOptions().statistics->Reset();
+    SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
     get_perf_context()->EnablePerLevelPerfContext();
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &query_wd, query_track);
+    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track);
 
     // Collect stats after per run
     SetPerfLevel(kDisable);
     populateQueryTracker(query_track, db, table_options, _env);
-    
-    if (_env->verbosity > 1) {
-      std::string state;
-      db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
-      std::cout << state << std::endl;
-    }
   
     uint64_t num_general_levels = _env->num_levels;
     dumpStats(&query_stats, query_track);    // dump stat of each run into acmulative stat
@@ -160,6 +155,18 @@ int runExperiments(EmuEnv* _env) {
     std::cout << "overall false positives: " << bloom_false_positives  << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate: " << 
       bloom_false_positives*100.0/(bloom_false_positives + query_track->bloom_sst_miss_count) << "%" << std::endl;
+    if (query_track->point_lookups_completed + query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency: " <<  static_cast<double>(query_track->point_lookups_cost +
+      query_track->zero_point_lookups_cost)/(query_track->point_lookups_completed + query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    }
+    if (_env->verbosity > 0) {
+      printEmulationOutput(_env, query_track);
+    }
+    if (_env->verbosity > 1) {
+      std::string state;
+      db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      std::cout << state << std::endl;
+    }
     delete query_track;
     delete ingestion_query_track;
     
@@ -167,45 +174,8 @@ int runExperiments(EmuEnv* _env) {
     DbStats db_stats;
     db_stats.bits_per_key = _env->bits_per_key;
  
-    auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
-    const auto* vstorage = cfd->current()->storage_info();
-    
-    // Aggregate statistics
-    bool fst_meet_entries = false;
-    db_stats.level2entries = std::vector<uint64_t> (cfd->NumberLevels(), 0);
-    for (int i = 0; i < num_general_levels; i++) {
-      if (vstorage->LevelFiles(i).empty()){
-        if(!fst_meet_entries) db_stats.fst_level_with_entries++;
-        continue;
-      }
-      fst_meet_entries = true;
-      db_stats.num_levels++;
-      //if (i == 0) continue;
-      
-      std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
-      FileMetaData* level_file;
-      db_stats.num_files += level_files.size();
-      if (i == 0) {
-        db_stats.entries_in_level0 = std::vector<uint64_t> (level_files.size(), 0);
-      }
-      for (uint32_t j = 0; j < level_files.size(); j++) {
-        level_file = level_files[j];
-        db_stats.level2entries[i] += level_file->num_entries - level_file->num_range_deletions;
-        if (i == 0) {
-          db_stats.entries_in_level0[j] = level_file->num_entries - level_file->num_range_deletions;
-        }
-        db_stats.num_entries += level_file->num_entries - level_file->num_range_deletions;
-        uint64_t filenumber = level_file->fd.GetNumber();
-        if ( _env->print_sst_stat ){
-          std::string filename = MakeTableFileName(filenumber);
-          std::cout << filename << "(" << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") " << std::endl;
-        }
-        db_stats.fileID2entries.emplace(filenumber, level_file->num_entries - level_file->num_range_deletions);
-        db_stats.fileID2empty_queries.emplace(filenumber, level_file->stats.num_point_reads.load(std::memory_order_relaxed)  - level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed));
-        db_stats.num_total_empty_queries += level_file->stats.num_point_reads.load(std::memory_order_relaxed)  - level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed);
-      }
-    }
-    std::cout << "Total number of entries : " << db_stats.num_entries << std::endl;
+    collectDbStats(db, &db_stats, _env->print_sst_stat);
+    //std::cout << "Total number of entries : " << db_stats.num_entries << std::endl;
     
     if (_env->dump_query_stats) {
       dump_query_stats(db_stats, _env->dump_query_stats_filename);
@@ -227,14 +197,9 @@ int runExperiments(EmuEnv* _env) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     QueryTracker *monkey_query_track = new QueryTracker();
     db_monkey->GetOptions().statistics->Reset();
-    runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &query_wd, monkey_query_track);
+    runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track);
     SetPerfLevel(kDisable);
     populateQueryTracker(monkey_query_track, db_monkey, table_options, _env);
-    if (_env->verbosity > 1) {
-      std::string state;
-      db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
-      std::cout << state << std::endl;
-    }
 
     std::cout << "monkey sst hit : " << monkey_query_track->bloom_sst_miss_count << "\t monkey tp : " << monkey_query_track->bloom_sst_true_positive_count << std::endl;
     bloom_false_positives = monkey_query_track->bloom_sst_hit_count - monkey_query_track->bloom_sst_true_positive_count;
@@ -242,7 +207,18 @@ int runExperiments(EmuEnv* _env) {
     std::cout << "overall false positives (monkey): " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (monkey): " << 
       bloom_false_positives*100.0/(bloom_false_positives + monkey_query_track->bloom_sst_miss_count) << "%" << std::endl;
-    
+    if (monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency (monkey): " <<  static_cast<double>(monkey_query_track->point_lookups_cost +
+      monkey_query_track->zero_point_lookups_cost)/(monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    }
+    if (_env->verbosity > 0) {
+      printEmulationOutput(_env, monkey_query_track);
+    }
+    if (_env->verbosity > 1) {
+      std::string state;
+      db_monkey->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      std::cout << state << std::endl;
+    }
     delete monkey_query_track;
     CloseDB(db_monkey, flush_options);
 
@@ -256,21 +232,28 @@ int runExperiments(EmuEnv* _env) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     QueryTracker *monkey_plus_query_track = new QueryTracker();
     db_monkey_plus->GetOptions().statistics->Reset();
-    runWorkload(db_monkey_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &query_wd, monkey_plus_query_track);
+    runWorkload(db_monkey_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_plus_query_track);
     SetPerfLevel(kDisable);
     populateQueryTracker(monkey_plus_query_track, db_monkey_plus, table_options, _env);
-    if (_env->verbosity > 1) {
-      std::string state;
-      db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
-      std::cout << state << std::endl;
-    }
+
     std::cout << "monkey+ sst hit : " << monkey_plus_query_track->bloom_sst_miss_count << "\t monkey tp : " << monkey_plus_query_track->bloom_sst_true_positive_count << std::endl;
     bloom_false_positives = monkey_plus_query_track->bloom_sst_hit_count - monkey_plus_query_track->bloom_sst_true_positive_count;
     std::cout << "accessed data blocks (monkey+): " << monkey_plus_query_track->data_block_read_count << std::endl;
     std::cout << "overall false positives (monkey+):   " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (monkey+): " << 
       bloom_false_positives*100.0/(bloom_false_positives + monkey_plus_query_track->bloom_sst_miss_count) << "%" << std::endl;
-    
+    if (monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency (monkey+): " <<  static_cast<double>(monkey_plus_query_track->point_lookups_cost +
+      monkey_plus_query_track->zero_point_lookups_cost)/(monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    }
+    if (_env->verbosity > 0) {
+      printEmulationOutput(_env, monkey_plus_query_track);
+    }
+    if (_env->verbosity > 1) {
+      std::string state;
+      db_monkey_plus->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      std::cout << state << std::endl;
+    }
     delete monkey_plus_query_track;
     CloseDB(db_monkey_plus, flush_options);
 
@@ -283,7 +266,7 @@ int runExperiments(EmuEnv* _env) {
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
     QueryTracker *optimal_query_track = new QueryTracker();
     db_optimal->GetOptions().statistics->Reset();
-    runWorkload(db_optimal, _env, &options, &table_options, &write_options, &read_options, &flush_options, &query_wd, optimal_query_track);
+    runWorkload(db_optimal, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, optimal_query_track);
     SetPerfLevel(kDisable);
     populateQueryTracker(optimal_query_track, db_optimal, table_options, _env);
     if (_env->verbosity > 0) {
@@ -298,7 +281,18 @@ int runExperiments(EmuEnv* _env) {
     std::cout << "overall false positives (optimal): " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (optimal): " << 
       bloom_false_positives*100.0/(bloom_false_positives + optimal_query_track->bloom_sst_miss_count) << "%" << std::endl;
-
+    if (optimal_query_track->point_lookups_completed + optimal_query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency (optimal): " <<  static_cast<double>(optimal_query_track->point_lookups_cost +
+      optimal_query_track->zero_point_lookups_cost)/(optimal_query_track->point_lookups_completed + optimal_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    }
+    if (_env->verbosity > 0) {
+      printEmulationOutput(_env, optimal_query_track);
+    }
+    if (_env->verbosity > 1) {
+      std::string state;
+      db_optimal->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      std::cout << state << std::endl;
+    }
     
     delete optimal_query_track;
 

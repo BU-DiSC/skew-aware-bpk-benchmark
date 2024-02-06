@@ -20,7 +20,6 @@ EmuEnv::EmuEnv()
   file_size = buffer_size * file_to_memtable_size_ratio;
   verbosity = 0;
 
-  // adding new parameters with Guanting
   compaction_pri = 1;                 // c | 1:kMinOverlappingRatio, 2:kByCompensatedSize, 3:kOldestLargestSeqFirst, 4:kOldestSmallestSeqFirst
   bits_per_key = 0;                   // b
 
@@ -35,6 +34,7 @@ EmuEnv::EmuEnv()
   block_cache_high_priority_ratio = 1.0;
   cache_index_and_filter_blocks = true;
   cache_index_and_filter_blocks_with_high_priority = true;      // Deprecated by no_block_cache
+  pin_top_level_index_and_filter = true;
   low_pri = false;
 
   // Other DBOptions
@@ -52,6 +52,7 @@ EmuEnv::EmuEnv()
   string experiment_starting_time = "";
 
   show_progress=false;
+  eval_point_read_statistics_accuracy_interval = 100;
   measure_IOs=false; 
   total_IOs=0;
   
@@ -59,6 +60,9 @@ EmuEnv::EmuEnv()
   print_IOs_per_file=false;
   dump_query_stats=false;
   string dump_query_stats_filename = "dump_query_stats.txt";
+
+  bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kDefaultBpkAlloc;
+  point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
 }
 
 EmuEnv* EmuEnv::getInstance()

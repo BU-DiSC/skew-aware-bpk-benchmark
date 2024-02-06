@@ -2,6 +2,9 @@ bpk_benchmark
 bpk_benchmark_debug
 plain_benchmark
 plain_benchmark_debug
+query_statistics_est_benchmark
+query_statistics_est_benchmark_debug
+query_statistics_est_benchmark_result/
 *.txt
 db_working_home*
 .vscode/

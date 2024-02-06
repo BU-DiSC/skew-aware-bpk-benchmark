@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <iomanip>
+#include <queue>
 #include <string>
 #include <unistd.h>
 #include <sys/types.h>
@@ -65,7 +66,6 @@ Status CloseDB(DB *&db, const FlushOptions &flush_op) {
 	assert(s.ok());
 	delete db;
 	db = nullptr;
-	std::cout << " OK" << std::endl;
 	return s;
 }
 
@@ -114,8 +114,76 @@ bool FlushMemTableMayAllComplete(DB *db) {
       		->WaitForFlushMemTable(static_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd())) == Status::OK();
 }
 
-Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, Options *op,
-    EnvOptions *env_op, ReadOptions *read_op) {
+void resetPointReadsStats(DB* db) {
+  auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
+  const auto* vstorage = cfd->current()->storage_info();
+  for (int i = 0; i < cfd->NumberLevels(); i++) {
+    std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
+    for (uint32_t j = 0; j < level_files.size(); j++) {
+      level_files[j]->stats.num_point_reads.store(0);
+      level_files[j]->stats.num_existing_point_reads.store(0);
+      level_files[j]->stats.start_global_point_read_number = 0;
+      level_files[j]->stats.global_point_read_number_window = std::queue<uint64_t>();
+      level_files[j]->stats.point_read_result_in_window = 0;
+    }
+  }
+}
+
+void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_t start_global_point_read_number, double learning_rate) {
+  auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
+  const auto* vstorage = cfd->current()->storage_info();
+  
+  uint64_t num_point_reads;
+  uint64_t num_existing_point_reads;
+  // Aggregate statistics
+  bool fst_meet_entries = false;
+  stats->level2entries = std::vector<uint64_t> (cfd->NumberLevels(), 0);
+  for (int i = 0; i < cfd->NumberLevels(); i++) {
+    if (vstorage->LevelFiles(i).empty()){
+      if(!fst_meet_entries) stats->fst_level_with_entries++;
+      continue;
+    }
+    fst_meet_entries = true;
+    stats->num_levels++;
+    stats->leveled_fileID2queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
+    stats->leveled_fileID2empty_queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
+    //if (i == 0) continue;
+    
+    std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
+    FileMetaData* level_file;
+    stats->num_files += level_files.size();
+    if (i == 0) {
+      stats->entries_in_level0 = std::vector<uint64_t> (level_files.size(), 0);
+    }
+    for (uint32_t j = 0; j < level_files.size(); j++) {
+      level_file = level_files[j];
+      stats->level2entries[i] += level_file->num_entries - level_file->num_range_deletions;
+      if (i == 0) {
+        stats->entries_in_level0[j] = level_file->num_entries - level_file->num_range_deletions;
+      }
+      stats->num_entries += level_file->num_entries - level_file->num_range_deletions;
+      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate);
+      num_point_reads = result.first;
+      num_existing_point_reads = result.second;
+      uint64_t filenumber = level_file->fd.GetNumber();
+      if ( print_point_read_stats ){
+        std::string filename = MakeTableFileName(filenumber);
+        std::cout << filename << "(" << num_point_reads << ", " << num_existing_point_reads << ") " << std::endl;
+      }
+      stats->fileID2entries.emplace(filenumber, level_file->num_entries - level_file->num_range_deletions);
+      stats->fileID2empty_queries.emplace(filenumber, num_point_reads  - num_existing_point_reads);
+      //stats->fileID2empty_queries.second.emplace(filenumber, num_existing_point_reads);
+      stats->fileID2queries.emplace(filenumber, num_point_reads);
+      stats->leveled_fileID2empty_queries.back().second.emplace(filenumber, num_point_reads  - num_existing_point_reads);
+      //stats->leveled_fileID2empty_queries.back().second.emplace(filenumber, num_existing_point_reads);
+      stats->leveled_fileID2queries.back().second.emplace(filenumber, num_point_reads);
+      stats->num_total_empty_queries += num_point_reads  - num_existing_point_reads;
+    }
+  }
+}
+
+Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, const Options *op,
+    EnvOptions *env_op, const ReadOptions *read_op) {
   SstFileReader reader (*op);
   SstFileWriter writer (*env_op, *op);
   Status s = reader.Open(filename_to_read);
@@ -205,30 +273,29 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
       double bits_per_key = 0;
       if (i != 0) {
         bits_per_key = bpk_by_level[i];
-        if (bits_per_key <= 0.5) {
-          table_op->filter_policy.reset();
-        } else {
-          table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
-        }
-        op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
-      } 
+      } else {
+        bits_per_key = _env->bits_per_key;
+      }
+      if (bits_per_key <= 0.5) {
+        table_op->filter_policy.reset();
+      } else {
+        table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
+      }
+      op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
+      
       
       uint32_t num_entries_by_level = 0 ;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
         std::string filename = MakeTableFileName(level_file->fd.GetNumber());
         if (bits_per_key == 0) {
-            objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber());
-          } else {
-            objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber())*std::exp(-log_2_squared*bits_per_key);
-          }
-        if (i == 0) {
-          std::string cmd = "cp " + _env->path + "/" + filename + " " + _env->path + "-temp/" + filename;
-          system(cmd.c_str());
+          objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber());
         } else {
-          Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
-          if (!s.ok()) std::cout << s.ToString() << std::endl;
+          objective_value += db_stats.fileID2empty_queries.at(level_file->fd.GetNumber())*std::exp(-log_2_squared*bits_per_key);
         }
+
+        Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
+        if (!s.ok()) std::cout << s.ToString() << std::endl;
         num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
         filenames.push_back(_env->path + "-temp/" + filename);
       }
@@ -752,6 +819,36 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
     std::cout << std::setfill(' ') << std::setw(l) << track->ucpu_pct/runs << std::setfill(' ') << std::setw(l) << track->scpu_pct/runs << std::setfill(' ') << std::setw(l) << std::endl;
 }
 
+void print_point_read_stats_distance_collector(std::vector<std::pair<double, double> >* point_reads_statistics_distance_collector) {
+  assert(point_reads_statistics_distance_collector);
+  size_t l = 32;
+  // print the difference of estimated statistics
+  for (size_t i = 0; i < 2*l + 3; i++) {
+    std::cout << "-";
+  }
+  std::cout << std::endl;
+  std::cout << "|";
+  std::cout << std::setfill(' ') << std::setw(l) << "num_point_reads distance";
+  std::cout << "|";
+  std::cout << std::setfill(' ') << std::setw(l) << "num_existing_point_reads distance";
+  std::cout << "|" << std::endl;
+  for (size_t i = 0; i < 2*l + 3; i++) {
+    std::cout << "-";
+  }
+  std::cout << std::endl;
+  for (size_t i = 0; i < point_reads_statistics_distance_collector->size(); i++) {
+    std::cout << "|";
+    std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) << point_reads_statistics_distance_collector->at(i).first;
+    std::cout << "|";
+    std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) << point_reads_statistics_distance_collector->at(i).second;
+    std::cout << "|" << std::endl;
+  }
+  for (size_t i = 0; i < 2*l + 3; i++) {
+    std::cout << "-";
+  }
+  std::cout << std::endl;
+}
+
 void dump_query_stats(const DbStats & db_stats, const std::string & path) {
   std::ofstream outfile (path.c_str());
   outfile << db_stats.num_entries << " " << db_stats.bits_per_key << " " << db_stats.num_files << std::endl;
@@ -771,6 +868,7 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
 
     // *op = Options();
     op->write_buffer_size = _env->buffer_size; 
+    op->point_reads_track_method = _env->point_reads_track_method;
 
     // Compaction
     switch (_env->compaction_pri) {
@@ -819,6 +917,7 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
       ;// invoke manual block_cache
   }
 
+  table_op->bpk_alloc_type = _env->bits_per_key_alloc_type;
   if (_env->bits_per_key == 0) {
       ;// do nothing
   } else {
@@ -934,13 +1033,19 @@ void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key,
 // Run a workload from memory
 // The workload is stored in WorkloadDescriptor
 // Use QueryTracker to record performance for each query operation
-int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBasedTableOptions *table_op, 
+int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableOptions *table_op, 
                 const WriteOptions *write_op, const ReadOptions *read_op, const FlushOptions *flush_op,
-                const WorkloadDescriptor *wd, QueryTracker *query_track) {
+                EnvOptions* env_op, const WorkloadDescriptor *wd, QueryTracker *query_track,
+                std::vector<SimilarityResult >* point_reads_statistics_distance_collector) {
   Status s;
   Iterator *it = _db-> NewIterator(*read_op); // for range reads
   uint64_t counter = 0, mini_counter = 0; // tracker for progress bar. TODO: avoid using these two 
   uint32_t cpu_sample_counter = 0;
+  bool eval_point_read_statistics_accuracy_flag = false;
+  if (point_reads_statistics_distance_collector != nullptr) {
+    eval_point_read_statistics_accuracy_flag = true;
+    point_reads_statistics_distance_collector->clear();
+  }
   my_clock start_clock, end_clock;    // clock to get query time
   // Clear System page cache before running
   if (_env->clear_sys_page_cache) { 
@@ -956,6 +1061,15 @@ int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBased
   cpuUsageInit();
   double ucpu_pct = 0.0;
   double scpu_pct = 0.0;
+  std::vector<string> point_reads_collector;
+  std::vector<double> num_point_reads_distance_vector;
+  std::vector<double> num_existing_point_reads_distance_vector;
+  uint64_t total_ingestion_num = wd->insert_num + wd->update_num + wd->pdelete_num + wd->rdelete_num;
+  if (total_ingestion_num == 0 || wd->plookup_num == 0) {
+    eval_point_read_statistics_accuracy_flag = false;
+  }
+  int eval_point_read_statistics_accuracy_count = 0;
+  DB* ground_truth_db = nullptr;
   for (const auto &qd : wd->queries) { 
     std::string key, start_key, end_key;
     std::string value;
@@ -1082,6 +1196,11 @@ int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBased
         // for pseudo zero-reuslt point lookup
         // if (query_track->point_lookups_completed + query_track->zero_point_lookups_completed >= 10) break;
         key = qd.entry_ptr->key;
+        if (eval_point_read_statistics_accuracy_flag && query_track->inserts_completed + 
+        query_track->updates_completed + query_track->point_deletes_completed + 
+        query_track->range_deletes_completed > 0) {
+          point_reads_collector.push_back(key);
+        }
 		    db_point_lookup(_db, read_op, key, _env->verbosity, query_track);
         break;
 
@@ -1126,6 +1245,42 @@ int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBased
       cpu_sample_counter++;
     }
     showProgress(wd->total_num, counter, mini_counter);
+
+    if (eval_point_read_statistics_accuracy_flag) {
+      uint32_t ingestion_num = query_track->inserts_completed + 
+        query_track->updates_completed + query_track->point_deletes_completed + 
+        query_track->range_deletes_completed;
+      string value;
+      if (ingestion_num%_env->eval_point_read_statistics_accuracy_interval == 0 && 
+        ingestion_num/_env->eval_point_read_statistics_accuracy_interval != 
+          eval_point_read_statistics_accuracy_count) {
+        s = _db->Flush(*flush_op);
+        assert(s.ok());
+        s = BackgroundJobMayAllCompelte(_db);
+        assert(s.ok());
+        std::string copy_db_cmd = "mkdir -p " +  _env->path + "-temp && rm " + _env->path + "-temp/* && cp " + _env->path + "-to-be-eval/* " + _env->path + "-temp/";
+        system(copy_db_cmd.c_str());
+	op->point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
+        s = DB::Open(*op, _env->path + "-temp", &ground_truth_db);
+        if (!s.ok()) std::cerr << s.ToString() << std::endl;
+        resetPointReadsStats(ground_truth_db);
+        for (const string & key: point_reads_collector) {
+          ground_truth_db->Get(*read_op, key, &value);
+        }
+	op->point_reads_track_method = _env->point_reads_track_method;
+        DbStats stats_to_be_evaluated;
+        DbStats stats_ground_truth;
+        collectDbStats(_db, &stats_to_be_evaluated, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, _env->poiont_read_learning_rate);
+        collectDbStats(ground_truth_db, &stats_ground_truth);
+        CloseDB(ground_truth_db, *flush_op);
+        point_reads_statistics_distance_collector->push_back(SimilarityResult(
+                                ComputePointQueriesStatisticsByEuclideanDistance(stats_to_be_evaluated, stats_ground_truth),
+                                ComputePointQueriesStatisticsByCosineSimilarity(stats_to_be_evaluated, stats_ground_truth),
+                                ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 1),
+				ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 2)));
+        eval_point_read_statistics_accuracy_count = ingestion_num/_env->eval_point_read_statistics_accuracy_interval;
+      }
+    }
   }
 
 
@@ -1150,6 +1305,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, const Options *op, const BlockBased
   _db->Flush(*flush_op);
   //FlushMemTableMayAllComplete(_db);
   //CompactionMayAllComplete(_db);
+
   return 0;
 }
 

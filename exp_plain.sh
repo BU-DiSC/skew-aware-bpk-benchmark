@@ -18,8 +18,8 @@ for ZD in ${ZD_list[@]}
 do
 	for Z in ${Z_list[@]}
 	do
-		echo "./plain_benchmark -T ${T} -E ${E} --cc --dd -p ${DB_HOME} --iwp /scratchHDDb/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDb/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P 4096 -b ${bpk} --BCC 655360 -V 1 --no_dynamic_cmpct --dw --dr > output/Z${Z}_ZD${ZD}_output.txt"
-		./plain_benchmark -T ${T} -E ${E} --cc --dd -p ${DB_HOME} --iwp /scratchHDDb/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDb/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P 4096 -b ${bpk} --BCC 655360 -R ${R} -V 1 --no_dynamic_cmpct --dw --dr > output/Z${Z}_ZD${ZD}_output.txt
+		echo "./plain_benchmark -T ${T} -E ${E} --cc --dd -p ${DB_HOME} --iwp /scratchHDDb/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDb/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P 4096 -b ${bpk} --BCC 131072 -V 1 --no_dynamic_cmpct --dw --dr > output/Z${Z}_ZD${ZD}_output.txt"
+		./plain_benchmark -T ${T} -E ${E} --cc --dd -p ${DB_HOME} --iwp /scratchHDDb/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDb/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P 4096 -b ${bpk} --BCC 131072 -R ${R} -V 1 --no_dynamic_cmpct --dw --dr > output/Z${Z}_ZD${ZD}_output.txt
 		rm ${DB_HOME}/*
 		rm ${DB_HOME}-monkey/*
 		rm ${DB_HOME}-workloadaware/*

@@ -59,6 +59,9 @@ public:
   bool allow_write_stall;
   bool level_compaction_dynamic_level_bytes = true;
   rocksdb::BitsPerKeyAllocationType bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kDefaultBpkAlloc;
+  rocksdb::PointReadsTrackMethod point_reads_track_method = rocksdb::PointReadsTrackMethod::kNoTrack;
+  uint8_t track_point_read_number_window_size = 64;
+  double poiont_read_learning_rate = 0.8;
 
   // database path 
   string path;
@@ -68,6 +71,7 @@ public:
   string wpath;
   
   bool show_progress;
+  uint32_t eval_point_read_statistics_accuracy_interval;
 
   bool measure_IOs;
   bool print_IOs_per_file;

@@ -1,9 +1,12 @@
 #ifndef WORKLOAD_STATS_H_
 #define WORKLOAD_STATS_H_
 
+#include <cstdint>
 #include <iostream>
 #include <fstream>
+#include <cmath>
 #include <vector>
+#include <utility>
 #include <unordered_map>
 #include <assert.h>
 
@@ -91,8 +94,84 @@ struct DbStats {
   std::vector<uint64_t> level2entries;
   std::vector<uint64_t> entries_in_level0;
   std::unordered_map<uint64_t, uint64_t> fileID2empty_queries;
+  std::unordered_map<uint64_t, uint64_t> fileID2queries;
   std::unordered_map<uint64_t, uint64_t> fileID2entries;
+  std::vector<std::pair<size_t, std::unordered_map<uint64_t, uint64_t>>> leveled_fileID2queries;
+  std::vector<std::pair<size_t, std::unordered_map<uint64_t, uint64_t>>> leveled_fileID2empty_queries;
 };
+
+struct SimilarityResult {
+  std::pair<double, double> euclidean_distance;
+  std::pair<double, double> cosine_similarity;
+  std::vector<std::pair<double, double>> leveled_cosine_similarity;
+  std::vector<std::pair<double, double>> leveled_euclidean_distance;
+  SimilarityResult(std::pair<double, double> _euclidean_distance,
+  		std::pair<double, double> _cosine_similarity,
+		std::vector<std::pair<double, double>> _leveled_euclidean_distance,
+                std::vector<std::pair<double, double>> _leveled_cosine_similarity) {
+    euclidean_distance = _euclidean_distance;
+    cosine_similarity = _cosine_similarity;
+    leveled_euclidean_distance = _leveled_euclidean_distance;
+    leveled_cosine_similarity = _leveled_cosine_similarity;
+  }
+  void add(const SimilarityResult& other) {
+    euclidean_distance.first += other.euclidean_distance.first;
+    euclidean_distance.second += other.euclidean_distance.second;
+    cosine_similarity.first += other.cosine_similarity.first;
+    cosine_similarity.second += other.cosine_similarity.second;
+    for (size_t i = 0; i < std::min(leveled_cosine_similarity.size(), other.leveled_cosine_similarity.size()); i++) {
+      leveled_cosine_similarity[i].first += other.leveled_cosine_similarity[i].first;
+      leveled_cosine_similarity[i].second += other.leveled_cosine_similarity[i].second;
+    }
+    for (size_t i = 0; i < std::min(leveled_euclidean_distance.size(), other.leveled_euclidean_distance.size()); i++) {
+      leveled_euclidean_distance[i].first += other.leveled_euclidean_distance[i].first;
+      leveled_euclidean_distance[i].second += other.leveled_euclidean_distance[i].second;
+    }
+  }
+  void dividedBy(double divisor) {
+    if (divisor == 0) return;
+    euclidean_distance.first /= divisor;
+    euclidean_distance.second /= divisor;
+    cosine_similarity.first /= divisor;
+    cosine_similarity.second /= divisor;
+    for (size_t i = 0; i < leveled_cosine_similarity.size(); i++) {
+      leveled_cosine_similarity[i].first /= divisor;
+      leveled_cosine_similarity[i].second /= divisor;
+    }
+    for (size_t i = 0; i < leveled_euclidean_distance.size(); i++) {
+      leveled_euclidean_distance[i].first /= divisor;
+      leveled_euclidean_distance[i].second /= divisor;
+    }
+  }
+  double getAvgCosineSimilarityForNumPointReads() {
+    double result = 0.0;
+    for (size_t i = 0; i < leveled_cosine_similarity.size(); i++) {
+	    result += leveled_cosine_similarity[i].first;
+    }
+    if (leveled_cosine_similarity.size() > 0) {
+	    result /= leveled_cosine_similarity.size();
+    }
+    return result;
+  }
+
+  double getAvgCosineSimilarityForNumExistingPointReads() {
+    double result = 0.0;
+    for (size_t i = 0; i < leveled_cosine_similarity.size(); i++) {
+    	result += leveled_cosine_similarity[i].second;
+    }
+    if (leveled_cosine_similarity.size() > 0) {
+	    result /= leveled_cosine_similarity.size();
+    }
+    return result;
+  }
+};
+
+// using cosine similarity
+std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStats& stats1, DbStats& stats2);
+// using level-wise euclidean distance (i.e., calculate euclidean distance per level)
+std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseDistanceType(DbStats& stats1, DbStats& stats2, int distance_type);
+// using Euclidean distance
+std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbStats& stats1, DbStats& stats2);
 
 // Keep track of all performance metrics during queries execution
 struct QueryTracker {
