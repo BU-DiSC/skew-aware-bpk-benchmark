@@ -1024,10 +1024,10 @@ void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key,
         query_track->zero_point_lookups_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->zero_point_lookups_completed;
     } else{
-
         query_track->point_lookups_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->point_lookups_completed;
     }
+    ++query_track->total_completed;
 }
 
 // Run a workload from memory

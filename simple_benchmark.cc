@@ -24,8 +24,7 @@
 using namespace rocksdb;
 
 // Specify your path of workload file here
-std::string ingestion_workloadPath = "./workload.txt";
-std::string query_workloadPath = "./workload.txt";
+std::string workloadPath = "./workload.txt";
 std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
 QueryTracker global_query_tracker;
@@ -36,7 +35,6 @@ QueryTracker global_workloadaware_query_tracker;
 
 DB* db = nullptr;
 DB* db_monkey = nullptr;
-DB* db_monkey_plus = nullptr;
 DB* db_workloadaware = nullptr;
 
 
@@ -91,7 +89,6 @@ int runExperiments(EmuEnv* _env) {
   BlockBasedTableOptions table_options;
   FlushOptions flush_options;
  
-  WorkloadDescriptor ingestion_wd(_env->ingestion_wpath);
   WorkloadDescriptor query_wd(_env->query_wpath);
  
   //WorkloadDescriptor wd(workloadPath);
@@ -99,7 +96,6 @@ int runExperiments(EmuEnv* _env) {
   configOptions(_env, &options, &table_options, &write_options, &read_options, &flush_options);
    EnvOptions env_options (options);
   // parsing workload
-  loadWorkload(&ingestion_wd);
   loadWorkload(&query_wd);
       
   uint64_t bloom_false_positives;
@@ -107,37 +103,27 @@ int runExperiments(EmuEnv* _env) {
   // Starting experiments
   assert(_env->experiment_runs >= 1);
   for (int i = 0; i < _env->experiment_runs; ++i) {
-    // Reopen DB
+    // Reopen DB 
     if (_env->destroy) {
-      //DestroyDB(kDBPath, options);
-      Status destroy_status = DestroyDB(_env->path, options);
-      if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
+      DestroyDB(_env->path, options);
+      DestroyDB(_env->path + "-monkey", options);
+      DestroyDB(_env->path + "-workloadaware", options);
     }
-    DestroyDB(_env->path + "-monkey", options);
-    DestroyDB(_env->path + "-workloadaware", options);
     Status s;
     // Prepare Perf and I/O stats
-    QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
-    
-    
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    
     QueryTracker *query_track = new QueryTracker();
+    
     s = DB::Open(options, _env->path, &db);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     assert(s.ok());
    
+    
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     get_iostats_context()->Reset();
     
     // Run workload
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    s = CloseDB(db, flush_options);
-    assert(s.ok());
-    s= DB::Open(options, _env->path, &db);
-    assert(s.ok());
-    
     db->GetOptions().statistics->Reset();
     get_perf_context()->EnablePerLevelPerfContext();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
@@ -155,6 +141,7 @@ int runExperiments(EmuEnv* _env) {
     dumpStats(&global_query_tracker, query_track);    // dump stat of each run into acmulative stat
     bloom_false_positives = query_track->bloom_sst_hit_count - query_track->bloom_sst_true_positive_count;
     std::cout << "accessed data blocks: " << query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes: " << query_track->bytes_read << std::endl;
     std::cout << "overall false positives: " << bloom_false_positives  << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate: " << 
       bloom_false_positives*100.0/(bloom_false_positives + query_track->bloom_sst_miss_count) << "%" << std::endl;
@@ -162,13 +149,14 @@ int runExperiments(EmuEnv* _env) {
       std::cout << std::fixed << std::setprecision(6) << "point query latency: " <<  static_cast<double>(query_track->point_lookups_cost +
       query_track->zero_point_lookups_cost)/(query_track->point_lookups_completed + query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
+    if (query_track->inserts_completed + query_track->updates_completed + query_track->point_deletes_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency: " <<  static_cast<double>(query_track->inserts_cost +
+      query_track->updates_cost + query_track->point_deletes_cost)/(query_track->inserts_completed + query_track->updates_completed + query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+    }
     if (query_track->total_completed > 0) {
       std::cout << std::fixed << std::setprecision(6) << "avg operation latency: " <<  static_cast<double>(query_track->workload_exec_time)/query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
     delete query_track;
-    delete ingestion_query_track;
-    ingestion_query_track = NULL;
-    ReopenDB(db, options, flush_options);
     get_perf_context()->ClearPerLevelPerfContext();
     CloseDB(db, flush_options);
     
@@ -176,10 +164,6 @@ int runExperiments(EmuEnv* _env) {
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMonkeyBpkAlloc;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     s = DB::Open(options, _env->path + "-monkey", &db_monkey);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    ingestion_query_track = new QueryTracker();
-    runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    s = ReopenDB(db_monkey, options, flush_options);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -200,6 +184,7 @@ int runExperiments(EmuEnv* _env) {
     std::cout << "monkey sst hit : " << monkey_query_track->bloom_sst_miss_count << "\t monkey tp : " << monkey_query_track->bloom_sst_true_positive_count << std::endl;
     bloom_false_positives = monkey_query_track->bloom_sst_hit_count - monkey_query_track->bloom_sst_true_positive_count;
     std::cout << "accessed data blocks (monkey): " << monkey_query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes (monkey): " << monkey_query_track->bytes_read << std::endl;
     std::cout << "overall false positives (monkey): " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (monkey): " << 
       bloom_false_positives*100.0/(bloom_false_positives + monkey_query_track->bloom_sst_miss_count) << "%" << std::endl;
@@ -207,13 +192,14 @@ int runExperiments(EmuEnv* _env) {
       std::cout << std::fixed << std::setprecision(6) << "point query latency (monkey): " <<  static_cast<double>(monkey_query_track->point_lookups_cost +
       monkey_query_track->zero_point_lookups_cost)/(monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
+    if (monkey_query_track->inserts_completed + monkey_query_track->updates_completed + monkey_query_track->point_deletes_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (monkey): " <<  static_cast<double>(monkey_query_track->inserts_cost +
+      monkey_query_track->updates_cost + monkey_query_track->point_deletes_cost)/(monkey_query_track->inserts_completed + monkey_query_track->updates_completed + monkey_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+    }
     if (monkey_query_track->total_completed > 0) {
       std::cout << std::fixed << std::setprecision(6) << "avg operation latency (monkey): " <<  static_cast<double>(monkey_query_track->workload_exec_time)/monkey_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
-    printBFBitsPerKey(db_monkey);
     delete monkey_query_track;
-    delete ingestion_query_track;
-    ingestion_query_track = NULL;
     CloseDB(db_monkey, flush_options);
    
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
@@ -221,10 +207,6 @@ int runExperiments(EmuEnv* _env) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.track_point_read_number_window_size = 16;
     s = DB::Open(options, _env->path + "-workloadaware", &db_workloadaware);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    ingestion_query_track = new QueryTracker();
-    runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    s = ReopenDB(db_workloadaware, options, flush_options);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -244,6 +226,7 @@ int runExperiments(EmuEnv* _env) {
     }
     bloom_false_positives = workloadaware_query_track->bloom_sst_hit_count - workloadaware_query_track->bloom_sst_true_positive_count;
     std::cout << "accessed data blocks (workloadaware): " << workloadaware_query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes (workloadaware): " << workloadaware_query_track->bytes_read << std::endl;
     std::cout << "overall false positives (workloadaware): " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (workloadaware): " << 
       bloom_false_positives*100.0/(bloom_false_positives + workloadaware_query_track->bloom_sst_miss_count) << "%" << std::endl;
@@ -251,12 +234,15 @@ int runExperiments(EmuEnv* _env) {
       std::cout << std::fixed << std::setprecision(6) << "point query latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->point_lookups_cost +
       workloadaware_query_track->zero_point_lookups_cost)/(workloadaware_query_track->point_lookups_completed + workloadaware_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
+    if (workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (workloadaware: " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
+      workloadaware_query_track->updates_cost + workloadaware_query_track->point_deletes_cost)/(workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+    }
     if (workloadaware_query_track->total_completed > 0) {
       std::cout << std::fixed << std::setprecision(6) << "avg operation latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->workload_exec_time)/workloadaware_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
     s = BackgroundJobMayAllCompelte(db_workloadaware);
     assert(s.ok());
-    printBFBitsPerKey(db_workloadaware);
     delete workloadaware_query_track;
 
     CloseDB(db_workloadaware, flush_options);
@@ -300,7 +286,6 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<int> verbosity_cmd(group4, "verbosity", "The verbosity level of execution [0,1,2; def: 0]", {'V', "verbosity"});
 
   args::ValueFlag<std::string> path_cmd(group4, "path", "path for writing the DB and all the metadata files", {'p', "path"});
-  args::ValueFlag<std::string> ingestion_wpath_cmd(group4, "wpath", "path for ingestion workload files", {"iwp", "ingestion-wpath"});
   args::ValueFlag<std::string> query_wpath_cmd(group4, "wpath", "path for query workload files", {"qwp", "query-wpath"});
   args::ValueFlag<std::string> query_stats_path_cmd(group4, "query_stats_path", "path for dumping query stats", {"qsp", "query-stats-path"});
   args::ValueFlag<int> num_levels_cmd(group1, "L", "The number of levels to fill up with data [def: -1]", {'L', "num_levels"});
@@ -352,8 +337,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->use_direct_reads = direct_reads_cmd ? true : false;
   _env->use_direct_io_for_flush_and_compaction = direct_writes_cmd ? true : false;
   _env->path = path_cmd ? args::get(path_cmd) : kDBPath;
-  _env->ingestion_wpath = ingestion_wpath_cmd ? args::get(ingestion_wpath_cmd) : ingestion_workloadPath;
-  _env->query_wpath = query_wpath_cmd ? args::get(query_wpath_cmd) : query_workloadPath;
+  _env->query_wpath = query_wpath_cmd ? args::get(query_wpath_cmd) : workloadPath;
   _env->num_levels = num_levels_cmd ? args::get(num_levels_cmd) : 7;
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
