@@ -68,10 +68,13 @@ void dump_query_stats(const DbStats & db_stats, const std::string & path);
 
 void print_point_read_stats_distance_collector(std::vector<SimilarityResult >* point_reads_statistics_distance_collector);
 
+void write_collected_throuput(std::vector<vector<double> > collected_throuputs, std::vector<std::string> names, std::string path, uint32_t interval);
+
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op,
                 const BlockBasedTableOptions *table_op, const WriteOptions *write_op, 
                 const ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions* env_op, 
                 const WorkloadDescriptor *wd, QueryTracker *query_track,
+                std::vector<double >* throughput_collector = nullptr,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector = nullptr);   // run_workload internal
 
 // utilities for cpu usage measuring COPIED FROM "https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process"

@@ -11,3 +11,4 @@ db_working_home*
 output/*.txt
 output-NVM0/
 simple_benchmark
+simple_benchmark_debug

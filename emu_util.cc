@@ -45,11 +45,7 @@ Status BackgroundJobMayAllCompelte(DB *&db) {
      (db->GetOptions().disable_auto_compactions == false && CompactionMayAllComplete(db)))) {
 		return_status = Status::OK();
 	}
-
-  if (((static_cast_with_check<DBImpl, DB>(db->GetRootDB())))->TEST_WaitForBackgroundWork()
-    == Status::OK()){
-    return_status = Status::OK();
-  }
+ 
   return return_status;
 }
 
@@ -95,7 +91,7 @@ bool CompactionMayAllComplete(DB *db) {
 							 && db->GetIntProperty("rocksdb.num-running-compactions", &running_compact);
 
   } while (pending_compact || pending_compact_bytes || running_compact || !success);
-	return ((static_cast_with_check<DBImpl, DB>(db->GetRootDB()))->TEST_WaitForCompact()) == Status::OK();
+	return success;
 }
 
 // Need to select timeout carefully
@@ -1030,12 +1026,32 @@ void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key,
     ++query_track->total_completed;
 }
 
+void write_collected_throuput(std::vector<vector<double> > collected_throuputs, std::vector<std::string> names, std::string throuput_path, uint32_t interval) {
+  assert(collected_throuputs.size() == names.size());
+  assert(collected_throuputs.size() > 0);
+  ofstream throuput_ofs(throuput_path.c_str());
+  throuput_ofs << "ops";
+  for (int i = 0; i < names.size(); i++) {
+    throuput_ofs << ",tput-" << names[i];
+  }
+  throuput_ofs << std::endl;
+  for (int j = 0; j < collected_throuputs[0].size(); j++) {
+    throuput_ofs << j*interval;
+    for (int i = 0; i < collected_throuputs.size(); i++) {
+      throuput_ofs << "," << collected_throuputs[i][j];
+    }
+    throuput_ofs << std::endl;
+  }
+  throuput_ofs.close();
+}
+
 // Run a workload from memory
 // The workload is stored in WorkloadDescriptor
 // Use QueryTracker to record performance for each query operation
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableOptions *table_op, 
                 const WriteOptions *write_op, const ReadOptions *read_op, const FlushOptions *flush_op,
                 EnvOptions* env_op, const WorkloadDescriptor *wd, QueryTracker *query_track,
+                std::vector<double >* throughput_collector,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector) {
   Status s;
   Iterator *it = _db-> NewIterator(*read_op); // for range reads
@@ -1045,6 +1061,11 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
   if (point_reads_statistics_distance_collector != nullptr) {
     eval_point_read_statistics_accuracy_flag = true;
     point_reads_statistics_distance_collector->clear();
+  }
+  bool collect_throuput_flag = false;
+  if (throughput_collector != nullptr) {
+    collect_throuput_flag = true;
+    throughput_collector->clear();
   }
   my_clock start_clock, end_clock;    // clock to get query time
   // Clear System page cache before running
@@ -1246,6 +1267,25 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
     }
     showProgress(wd->total_num, counter, mini_counter);
 
+    if (collect_throuput_flag) {
+      if (counter%_env->throuput_collect_interval == 0) {
+         uint64_t exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
+                                    + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
+                                    + query_track->range_lookups_cost;
+        if (counter != 0 && exec_time != 0) {
+          throughput_collector->push_back(counter*1.0/exec_time);
+        } else {
+          throughput_collector->push_back(0.0);
+        }
+      }
+      uint64_t ops = query_track->inserts_completed + 
+        query_track->updates_completed + query_track->point_deletes_completed + 
+        query_track->range_deletes_completed + query_track->point_lookups_completed +
+        query_track->zero_point_lookups_completed;
+     
+      
+      
+    }
     if (eval_point_read_statistics_accuracy_flag) {
       uint32_t ingestion_num = query_track->inserts_completed + 
         query_track->updates_completed + query_track->point_deletes_completed + 
@@ -1281,6 +1321,17 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         eval_point_read_statistics_accuracy_count = ingestion_num/_env->eval_point_read_statistics_accuracy_interval;
       }
     }
+  }
+
+  if (collect_throuput_flag) {
+    uint64_t exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
+                                    + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
+                                    + query_track->range_lookups_cost;
+        if (counter != 0 && exec_time != 0) {
+          throughput_collector->push_back(counter*1.0/exec_time);
+        } else {
+          throughput_collector->push_back(0.0);
+        }
   }
 
 

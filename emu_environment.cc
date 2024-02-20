@@ -27,6 +27,7 @@ EmuEnv::EmuEnv()
   clear_sys_page_cache = false;       // cc
   destroy = true;                     // dd
   use_direct_reads = false;           // dr
+  use_direct_io_for_flush_and_compaction = false; //dw
 
   // TableOptions
   no_block_cache = false;                                        // TBC
@@ -53,6 +54,7 @@ EmuEnv::EmuEnv()
 
   show_progress=false;
   eval_point_read_statistics_accuracy_interval = 100;
+  throuput_collect_interval = 0;
   measure_IOs=false; 
   total_IOs=0;
   

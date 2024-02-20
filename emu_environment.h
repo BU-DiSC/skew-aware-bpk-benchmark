@@ -72,6 +72,8 @@ public:
   
   bool show_progress;
   uint32_t eval_point_read_statistics_accuracy_interval;
+  // throuput_collect_interval == 0 means not collecting throuput
+  uint32_t throuput_collect_interval;
 
   bool measure_IOs;
   bool print_IOs_per_file;

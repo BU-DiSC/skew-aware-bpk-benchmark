@@ -126,7 +126,7 @@ int runExperiments(EmuEnv* _env, std::vector<SimilarityResult >* point_reads_sta
     // Prepare Perf and I/O stats
     QueryTracker *query_track = new QueryTracker();   // stats tracker for each run
     
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, &temp_point_reads_statistics_distance_collector);
+    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, nullptr, &temp_point_reads_statistics_distance_collector);
     if (point_reads_statistics_distance_collector->empty()) {
         *point_reads_statistics_distance_collector = temp_point_reads_statistics_distance_collector;
     } else {
@@ -249,6 +249,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
   _env->eval_point_read_statistics_accuracy_interval = eval_point_read_statistics_accuracy_interval_cmd ? args::get(eval_point_read_statistics_accuracy_interval_cmd) : 100;
+  assert(_env->eval_point_read_statistics_accuracy_interval > 0);
 
   num_point_reads_statistics_diff_path = num_point_reads_stats_diff_path_cmd ? args::get(num_point_reads_stats_diff_path_cmd) : num_point_reads_statistics_diff_path;
   num_empty_point_reads_statistics_diff_path = num_empty_point_reads_stats_diff_path_cmd ? args::get(num_empty_point_reads_stats_diff_path_cmd) : num_empty_point_reads_statistics_diff_path;

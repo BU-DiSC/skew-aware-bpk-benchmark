@@ -3,7 +3,7 @@ import sys
 runs = int(sys.argv[1])
 output_dir = sys.argv[2]
 
-bpk_list = ["2.0","4.0","6.0","8.0","10.0"]
+bpk_list = ["2.0","3.0","4.0","5.0","6.0","7.0"]
 Z_list = ["0.0", "0.5", "1.0"]
 ZD_list = ["0", "3"]
 #bpk_list = ["1.0", "9.0", "12.0"]

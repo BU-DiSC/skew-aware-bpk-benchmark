@@ -27,6 +27,7 @@ using namespace rocksdb;
 std::string workloadPath = "./workload.txt";
 std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
+std::string throuputPath = "./throuputs.txt";
 QueryTracker global_query_tracker;
 QueryTracker global_monkey_query_tracker;
 QueryTracker global_workloadaware_query_tracker;
@@ -40,6 +41,8 @@ DB* db_workloadaware = nullptr;
 
 int runExperiments(EmuEnv* _env);    // API
 int parse_arguments2(int argc, char *argv[], EmuEnv* _env);
+void merge_tput_vectors(std::vector<double>* origin_tput, std::vector<double>* new_tput);
+
 
 int main(int argc, char *argv[]) {
   // check emu_environment.h for the contents of EmuEnv and also the definitions of the singleton experimental environment 
@@ -99,7 +102,11 @@ int runExperiments(EmuEnv* _env) {
   loadWorkload(&query_wd);
       
   uint64_t bloom_false_positives;
-  
+  std::vector<double> throuput_collector;
+  std::vector<double> monkey_throuput_collector;
+  std::vector<double> workloadaware_throuput_collector;
+  std::vector<double> temp_collector;
+
   // Starting experiments
   assert(_env->experiment_runs >= 1);
   for (int i = 0; i < _env->experiment_runs; ++i) {
@@ -112,6 +119,7 @@ int runExperiments(EmuEnv* _env) {
     Status s;
     // Prepare Perf and I/O stats
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+   
     QueryTracker *query_track = new QueryTracker();
     
     s = DB::Open(options, _env->path, &db);
@@ -127,7 +135,15 @@ int runExperiments(EmuEnv* _env) {
     db->GetOptions().statistics->Reset();
     get_perf_context()->EnablePerLevelPerfContext();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track);
+
+    if (_env->throuput_collect_interval == 0) { 
+      runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track);
+    } else {
+      temp_collector.clear();
+      runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, &temp_collector);
+      merge_tput_vectors(&throuput_collector, &temp_collector);
+    }
+    
 
     // Collect stats after per run
     SetPerfLevel(kDisable);
@@ -159,7 +175,7 @@ int runExperiments(EmuEnv* _env) {
     delete query_track;
     get_perf_context()->ClearPerLevelPerfContext();
     CloseDB(db, flush_options);
-    
+   
     options.create_if_missing = true;
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMonkeyBpkAlloc;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -172,7 +188,15 @@ int runExperiments(EmuEnv* _env) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     QueryTracker *monkey_query_track = new QueryTracker();
     db_monkey->GetOptions().statistics->Reset();
-    runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track);
+
+    if (_env->throuput_collect_interval == 0) { 
+      runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track);
+    } else {
+      temp_collector.clear();
+      runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track, &temp_collector);
+      merge_tput_vectors(&monkey_throuput_collector, &temp_collector);
+    }
+    
     SetPerfLevel(kDisable);
     populateQueryTracker(monkey_query_track, db_monkey, table_options, _env);
     dumpStats(&global_monkey_query_tracker, monkey_query_track); 
@@ -201,7 +225,7 @@ int runExperiments(EmuEnv* _env) {
     }
     delete monkey_query_track;
     CloseDB(db_monkey, flush_options);
-   
+    
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
     options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -215,7 +239,14 @@ int runExperiments(EmuEnv* _env) {
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
     QueryTracker *workloadaware_query_track = new QueryTracker();
     db_workloadaware->GetOptions().statistics->Reset();
-    runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track);
+    
+    if (_env->throuput_collect_interval == 0) { 
+      runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track);
+    } else {
+      temp_collector.clear();
+      runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track, &temp_collector);
+      merge_tput_vectors(&workloadaware_throuput_collector, &temp_collector);
+    }
     SetPerfLevel(kDisable);
     populateQueryTracker(workloadaware_query_track, db_workloadaware, table_options, _env);
     dumpStats(&global_workloadaware_query_tracker, workloadaware_query_track); 
@@ -235,7 +266,7 @@ int runExperiments(EmuEnv* _env) {
       workloadaware_query_track->zero_point_lookups_cost)/(workloadaware_query_track->point_lookups_completed + workloadaware_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
     if (workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (workloadaware: " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
       workloadaware_query_track->updates_cost + workloadaware_query_track->point_deletes_cost)/(workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
     }
     if (workloadaware_query_track->total_completed > 0) {
@@ -248,6 +279,19 @@ int runExperiments(EmuEnv* _env) {
     CloseDB(db_workloadaware, flush_options);
     std::cout << "End of experiment run: " << i+1 << std::endl;
     std::cout << std::endl;
+  }
+
+  if (_env->throuput_collect_interval > 0) {
+    for (int i = 0; i < throuput_collector.size(); i++) {
+      throuput_collector[i] /= _env->experiment_runs;
+    }
+    for (int i = 0; i < monkey_throuput_collector.size(); i++) {
+      monkey_throuput_collector[i] /= _env->experiment_runs;
+    }
+    for (int i = 0; i < workloadaware_throuput_collector.size(); i++) {
+      workloadaware_throuput_collector[i] /= _env->experiment_runs;
+    }
+    write_collected_throuput({throuput_collector, monkey_throuput_collector, workloadaware_throuput_collector}, {"uniform", "monkey", "workloadaware"}, throuputPath, _env->throuput_collect_interval);
   }
   return 0;
 }
@@ -292,6 +336,10 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
 
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
+
+  args::ValueFlag<uint32_t> collect_throuput_interval_cmd(group4, "collect_throuput_interval", "The interval of collecting the overal throuput", {"clct-tputi", "collect-throuput_interval"});
+  args::ValueFlag<std::string> throuput_path_cmd(group4, "throuput_path", "path for dumping the collected throuputs when executing the workload", {"tput-op", "throuput-output-path"});
+  
 
   try {
       parser.ParseCLI(argc, argv);
@@ -342,9 +390,19 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
+  _env->throuput_collect_interval = collect_throuput_interval_cmd ? args::get(collect_throuput_interval_cmd) : 0;
+  throuputPath = throuput_path_cmd ? args::get(throuput_path_cmd) : "./throuputs.txt";
   return 0;
 }
 
-
+void merge_tput_vectors(std::vector<double>* origin_tput, std::vector<double>* new_tput) {
+  if (origin_tput == nullptr || new_tput == nullptr) return;
+  if (origin_tput->size() == 0) {
+    *origin_tput = *new_tput;
+  }
+  for (int i = 0; i < origin_tput->size() && i < new_tput->size(); i++) {
+    origin_tput->at(i) += new_tput->at(i);
+  }
+}
 
 
