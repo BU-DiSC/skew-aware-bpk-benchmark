@@ -1026,23 +1026,23 @@ void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key,
     ++query_track->total_completed;
 }
 
-void write_collected_throuput(std::vector<vector<double> > collected_throuputs, std::vector<std::string> names, std::string throuput_path, uint32_t interval) {
-  assert(collected_throuputs.size() == names.size());
-  assert(collected_throuputs.size() > 0);
-  ofstream throuput_ofs(throuput_path.c_str());
-  throuput_ofs << "ops";
+void write_collected_throughput(std::vector<vector<double> > collected_throughputs, std::vector<std::string> names, std::string throughput_path, uint32_t interval) {
+  assert(collected_throughputs.size() == names.size());
+  assert(collected_throughputs.size() > 0);
+  ofstream throughput_ofs(throughput_path.c_str());
+  throughput_ofs << "ops";
   for (int i = 0; i < names.size(); i++) {
-    throuput_ofs << ",tput-" << names[i];
+    throughput_ofs << ",tput-" << names[i];
   }
-  throuput_ofs << std::endl;
-  for (int j = 0; j < collected_throuputs[0].size(); j++) {
-    throuput_ofs << j*interval;
-    for (int i = 0; i < collected_throuputs.size(); i++) {
-      throuput_ofs << "," << collected_throuputs[i][j];
+  throughput_ofs << std::endl;
+  for (int j = 0; j < collected_throughputs[0].size(); j++) {
+    throughput_ofs << j*interval;
+    for (int i = 0; i < collected_throughputs.size(); i++) {
+      throughput_ofs << "," << collected_throughputs[i][j];
     }
-    throuput_ofs << std::endl;
+    throughput_ofs << std::endl;
   }
-  throuput_ofs.close();
+  throughput_ofs.close();
 }
 
 // Run a workload from memory
@@ -1062,9 +1062,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
     eval_point_read_statistics_accuracy_flag = true;
     point_reads_statistics_distance_collector->clear();
   }
-  bool collect_throuput_flag = false;
+  bool collect_throughput_flag = false;
   if (throughput_collector != nullptr) {
-    collect_throuput_flag = true;
+    collect_throughput_flag = true;
     throughput_collector->clear();
   }
   my_clock start_clock, end_clock;    // clock to get query time
@@ -1267,8 +1267,8 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
     }
     showProgress(wd->total_num, counter, mini_counter);
 
-    if (collect_throuput_flag) {
-      if (counter%_env->throuput_collect_interval == 0) {
+    if (collect_throughput_flag) {
+      if (counter%_env->throughput_collect_interval == 0) {
          uint64_t exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;
@@ -1323,7 +1323,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
     }
   }
 
-  if (collect_throuput_flag) {
+  if (collect_throughput_flag) {
     uint64_t exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;

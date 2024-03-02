@@ -68,7 +68,7 @@ void dump_query_stats(const DbStats & db_stats, const std::string & path);
 
 void print_point_read_stats_distance_collector(std::vector<SimilarityResult >* point_reads_statistics_distance_collector);
 
-void write_collected_throuput(std::vector<vector<double> > collected_throuputs, std::vector<std::string> names, std::string path, uint32_t interval);
+void write_collected_throughput(std::vector<vector<double> > collected_throughputs, std::vector<std::string> names, std::string path, uint32_t interval);
 
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op,
                 const BlockBasedTableOptions *table_op, const WriteOptions *write_op, 

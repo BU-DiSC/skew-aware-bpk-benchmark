@@ -27,7 +27,7 @@ using namespace rocksdb;
 std::string workloadPath = "./workload.txt";
 std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
-std::string throuputPath = "./throuputs.txt";
+std::string throughputPath = "./throughputs.txt";
 QueryTracker global_query_tracker;
 QueryTracker global_monkey_query_tracker;
 QueryTracker global_workloadaware_query_tracker;
@@ -102,9 +102,9 @@ int runExperiments(EmuEnv* _env) {
   loadWorkload(&query_wd);
       
   uint64_t bloom_false_positives;
-  std::vector<double> throuput_collector;
-  std::vector<double> monkey_throuput_collector;
-  std::vector<double> workloadaware_throuput_collector;
+  std::vector<double> throughput_collector;
+  std::vector<double> monkey_throughput_collector;
+  std::vector<double> workloadaware_throughput_collector;
   std::vector<double> temp_collector;
 
   // Starting experiments
@@ -136,12 +136,12 @@ int runExperiments(EmuEnv* _env) {
     get_perf_context()->EnablePerLevelPerfContext();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
 
-    if (_env->throuput_collect_interval == 0) { 
+    if (_env->throughput_collect_interval == 0) { 
       runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track);
     } else {
       temp_collector.clear();
       runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, &temp_collector);
-      merge_tput_vectors(&throuput_collector, &temp_collector);
+      merge_tput_vectors(&throughput_collector, &temp_collector);
     }
     
 
@@ -189,12 +189,12 @@ int runExperiments(EmuEnv* _env) {
     QueryTracker *monkey_query_track = new QueryTracker();
     db_monkey->GetOptions().statistics->Reset();
 
-    if (_env->throuput_collect_interval == 0) { 
+    if (_env->throughput_collect_interval == 0) { 
       runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track);
     } else {
       temp_collector.clear();
       runWorkload(db_monkey, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_query_track, &temp_collector);
-      merge_tput_vectors(&monkey_throuput_collector, &temp_collector);
+      merge_tput_vectors(&monkey_throughput_collector, &temp_collector);
     }
     
     SetPerfLevel(kDisable);
@@ -240,12 +240,12 @@ int runExperiments(EmuEnv* _env) {
     QueryTracker *workloadaware_query_track = new QueryTracker();
     db_workloadaware->GetOptions().statistics->Reset();
     
-    if (_env->throuput_collect_interval == 0) { 
+    if (_env->throughput_collect_interval == 0) { 
       runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track);
     } else {
       temp_collector.clear();
       runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track, &temp_collector);
-      merge_tput_vectors(&workloadaware_throuput_collector, &temp_collector);
+      merge_tput_vectors(&workloadaware_throughput_collector, &temp_collector);
     }
     SetPerfLevel(kDisable);
     populateQueryTracker(workloadaware_query_track, db_workloadaware, table_options, _env);
@@ -281,17 +281,17 @@ int runExperiments(EmuEnv* _env) {
     std::cout << std::endl;
   }
 
-  if (_env->throuput_collect_interval > 0) {
-    for (int i = 0; i < throuput_collector.size(); i++) {
-      throuput_collector[i] /= _env->experiment_runs;
+  if (_env->throughput_collect_interval > 0) {
+    for (int i = 0; i < throughput_collector.size(); i++) {
+      throughput_collector[i] /= _env->experiment_runs;
     }
-    for (int i = 0; i < monkey_throuput_collector.size(); i++) {
-      monkey_throuput_collector[i] /= _env->experiment_runs;
+    for (int i = 0; i < monkey_throughput_collector.size(); i++) {
+      monkey_throughput_collector[i] /= _env->experiment_runs;
     }
-    for (int i = 0; i < workloadaware_throuput_collector.size(); i++) {
-      workloadaware_throuput_collector[i] /= _env->experiment_runs;
+    for (int i = 0; i < workloadaware_throughput_collector.size(); i++) {
+      workloadaware_throughput_collector[i] /= _env->experiment_runs;
     }
-    write_collected_throuput({throuput_collector, monkey_throuput_collector, workloadaware_throuput_collector}, {"uniform", "monkey", "workloadaware"}, throuputPath, _env->throuput_collect_interval);
+    write_collected_throughput({throughput_collector, monkey_throughput_collector, workloadaware_throughput_collector}, {"uniform", "monkey", "workloadaware"}, throughputPath, _env->throughput_collect_interval);
   }
   return 0;
 }
@@ -337,8 +337,8 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
 
-  args::ValueFlag<uint32_t> collect_throuput_interval_cmd(group4, "collect_throuput_interval", "The interval of collecting the overal throuput", {"clct-tputi", "collect-throuput_interval"});
-  args::ValueFlag<std::string> throuput_path_cmd(group4, "throuput_path", "path for dumping the collected throuputs when executing the workload", {"tput-op", "throuput-output-path"});
+  args::ValueFlag<uint32_t> collect_throughput_interval_cmd(group4, "collect_throughput_interval", "The interval of collecting the overal throughput", {"clct-tputi", "collect-throughput_interval"});
+  args::ValueFlag<std::string> throughput_path_cmd(group4, "throughput_path", "path for dumping the collected throughputs when executing the workload", {"tput-op", "throughput-output-path"});
   
 
   try {
@@ -390,8 +390,8 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
-  _env->throuput_collect_interval = collect_throuput_interval_cmd ? args::get(collect_throuput_interval_cmd) : 0;
-  throuputPath = throuput_path_cmd ? args::get(throuput_path_cmd) : "./throuputs.txt";
+  _env->throughput_collect_interval = collect_throughput_interval_cmd ? args::get(collect_throughput_interval_cmd) : 0;
+  throughputPath = throughput_path_cmd ? args::get(throughput_path_cmd) : "./throughputs.txt";
   return 0;
 }
 

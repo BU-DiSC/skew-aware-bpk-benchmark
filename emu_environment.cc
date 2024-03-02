@@ -54,7 +54,7 @@ EmuEnv::EmuEnv()
 
   show_progress=false;
   eval_point_read_statistics_accuracy_interval = 100;
-  throuput_collect_interval = 0;
+  throughput_collect_interval = 0;
   measure_IOs=false; 
   total_IOs=0;
   
