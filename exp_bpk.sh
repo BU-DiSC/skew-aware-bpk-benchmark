@@ -3,7 +3,9 @@
 P=512
 B=16
 T=4
-DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
+# Remember to specify a path for your dedicated storage device
+#DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
+DB_HOME="./db_working_home"
 Z_list=("0.0" "0.5" "1.0")
 ZD_list=("0" "3")
 #Z_list=("0.0")
@@ -19,19 +21,19 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./bpk_benchmark -P${P} -T${T} -B ${B} -p ${DB_HOME} --no_dynamic_cmpct --BCC ${BCC} -b ${bpk} --dd --iwp /scratchHDDa/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDa/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt --dr"
-			./bpk_benchmark -P${P} -T${T} -B ${B} -p ${DB_HOME} --no_dynamic_cmpct -V 1 --BCC ${BCC} -b ${bpk} --dd --iwp /scratchHDDa/zczhu/K-V-Workload-Generator/ingestion_workload.txt --qwp /scratchHDDa/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt --dr --dqs --query-stats-path output/Z${Z}_ZD${ZD}_query_stats.txt > output/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt
+			echo "./bpk_benchmark -P${P} -T${T} -B ${B} -p ${DB_HOME} --no_dynamic_cmpct --BCC ${BCC} -b ${bpk} --dd --iwp ../workload_generator_scripts/ingestion_workload.txt --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_query_workload.txt --dr"
+			./bpk_benchmark -P${P} -T${T} -B ${B} -p ${DB_HOME} --no_dynamic_cmpct -V 1 --BCC ${BCC} -b ${bpk} --dd --iwp ../workload_generator_scripts/ingestion_workload.txt --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_query_workload.txt --dr --dqs --query-stats-path output/Z${Z}_ZD${ZD}_query_stats.txt > output/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt
 			rm ${DB_HOME}/*
 			rm ${DB_HOME}-monkey/*
 			rm ${DB_HOME}-monkey-plus/*
 			rm ${DB_HOME}-optimal/*
 	
 		done
-		#cp /scratchHDDa/zczhu/K-V-Workload-Generator/Z${Z}_ZD${ZD}_query_workload.txt ./output/
+		#cp ../workload_generator_scripts/Z${Z}_ZD${ZD}_query_workload.txt ./output/
 		cd output/
 		./grep_accessed_data_blocks_by_bpk_microbenchmark.sh ${ZD} ${Z} > data_blocks_ZD${ZD}_Z${Z}_result.txt
 		./grep_query_latency_by_bpk_microbenchmark.sh ${ZD} ${Z} > query_latency_ZD${ZD}_Z${Z}_result.txt
 		cd -
 	done
 done
-cp /scratchHDDa/zczhu/K-V-Workload-Generator/ingestion_workload.txt output/
+cp ../workload_generator_scripts/ingestion_workload.txt output/

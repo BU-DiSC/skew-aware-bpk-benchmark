@@ -7,8 +7,8 @@ do
 	./exp_bpk.sh
 	mkdir -p "output${i}"
 	mv output/*.txt output${i}/
-	cd /scratchHDDa/zczhu/K-V-Workload-Generator/
-	./bpk_workload.sh
+	cd ../workload_generator_scripts/
+	../workload_generator_scripts/bpk_workload.sh
 	cd -
 done
 mkdir -p "agg_output_by_bpk/"
