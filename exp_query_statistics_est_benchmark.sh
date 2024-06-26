@@ -7,7 +7,6 @@ E=1024
 epri=200000
 R=3
 # Remember to specify a path for your RAM disk
-#DB_HOME="/mnt/ramd/zczhu/db_working_home"
 DB_HOME="./db_working_home"
 Z_list=("0.0" "0.5" "1.0")
 ZD_list=("0" "3")

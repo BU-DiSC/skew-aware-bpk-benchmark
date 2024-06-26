@@ -11,5 +11,5 @@ do
 	mkdir -p "output${i}"
 	mv output/*.txt output${i}/
 done
-mkdir -p "agg_output_by_short_bpk_with_rw_latency/"
-python3 merge_by_short_bpk_with_rw_latency.py ${runs} agg_output_by_short_bpk_with_rw_latency/
+mkdir -p "agg_output_by_short_bpk_with_rw_latency_skip_filter_when_insufficient_reads_128MB_bc/"
+python3 merge_by_short_bpk_with_rw_latency.py ${runs} agg_output_by_short_bpk_with_rw_latency_skip_filter_when_insufficient_reads_128MB_bc/

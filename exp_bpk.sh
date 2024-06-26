@@ -4,15 +4,15 @@ P=512
 B=16
 T=4
 # Remember to specify a path for your dedicated storage device
-#DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
-DB_HOME="./db_working_home"
+DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
+#DB_HOME="./db_working_home"
 Z_list=("0.0" "0.5" "1.0")
 ZD_list=("0" "3")
 #Z_list=("0.0")
 #ZD_list=("3")
-BCC=32768
+BCC=20480
 bpk_list=("1.0" "1.5" "2.0" "2.5" "3.0" "3.5" "4.0" "4.5" "5.0" "5.5" "6.0" "6.5" "7.0" "7.5" "8.0" "8.5" "9.0" "9.5" "10.0" "10.5" "11.0")
-bpk_list=("2.0" "3.0" "4.0" "5.0" "6.0" "7.0" "8.0" "9.0" "10.0" "11.0")
+bpk_list=("2.0" "3.0" "4.0" "5.0" "6.0" "7.0" "8.0")
 #bpk_list=("1.0" "9.0" "12.0")
 mkdir -p "output/"
 for ZD in ${ZD_list[@]}

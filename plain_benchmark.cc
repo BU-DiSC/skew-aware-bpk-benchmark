@@ -123,6 +123,7 @@ int runExperiments(EmuEnv* _env) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     
     QueryTracker *query_track = new QueryTracker();
+
     s = DB::Open(options, _env->path, &db);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     assert(s.ok());
@@ -130,7 +131,7 @@ int runExperiments(EmuEnv* _env) {
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->Reset();
     get_iostats_context()->Reset();
-    
+ /* 
     // Run workload
     runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
     s = CloseDB(db, flush_options);
@@ -171,9 +172,16 @@ int runExperiments(EmuEnv* _env) {
     ReopenDB(db, options, flush_options);
     get_perf_context()->ClearPerLevelPerfContext();
     CloseDB(db, flush_options);
-    
+   */ 
     options.create_if_missing = true;
-    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMonkeyBpkAlloc;
+    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc;
+    std::vector<double> bpk_list (_env->num_levels, _env->bits_per_key);
+    getNaiveMonkeyBitsPerKey(ingestion_wd.insert_num, floor(_env->buffer_size/_env->entry_size), _env->size_ratio, 
+            _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list);
+    table_options.naive_monkey_bpk_list = bpk_list;
+    // table_options.modular_filter = true;
+    // table_options.max_bits_per_key_granularity = _env->bits_per_key;
+    // table_options.max_modulars = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     s = DB::Open(options, _env->path + "-monkey", &db_monkey);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
@@ -215,8 +223,11 @@ int runExperiments(EmuEnv* _env) {
     delete ingestion_query_track;
     ingestion_query_track = NULL;
     CloseDB(db_monkey, flush_options);
-   
+
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
+    table_options.modular_filters = true;
+    table_options.max_bits_per_key_granularity = _env->bits_per_key;
+    table_options.max_modulars = 5;
     options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.track_point_read_number_window_size = 16;
@@ -239,7 +250,7 @@ int runExperiments(EmuEnv* _env) {
     dumpStats(&global_workloadaware_query_tracker, workloadaware_query_track); 
     if (_env->verbosity > 1) {
       std::string state;
-      db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      db_workloadaware->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
       std::cout << state << std::endl;
     }
     bloom_false_positives = workloadaware_query_track->bloom_sst_hit_count - workloadaware_query_track->bloom_sst_true_positive_count;
@@ -280,7 +291,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<long> buffer_size_cmd(group1, "M", "The size of a buffer that is configured manually [def: 2 MB]", {'M', "memory_size"});
   args::ValueFlag<int> file_to_memtable_size_ratio_cmd(group1, "file_to_memtable_size_ratio", "The size of a file over the size of configured buffer size [def: 1]", {'f', "file_to_memtable_size_ratio"});
   args::ValueFlag<long> file_size_cmd(group1, "file_size", "The size of a file that is configured manually [def: 2 MB]", {'F', "file_size"});
-  args::ValueFlag<long> level0_file_num_compaction_trigger_cmd(group1, "#files in level0", "The number of files to trigger level-0 compaction. [def: 2]", {"l0_files", "level0_files_cmpct_trigger"});
+  args::ValueFlag<long> level0_file_num_compaction_trigger_cmd(group1, "#files in level0", "The number of files to trigger level-0 compaction. [def: 4]", {"l0_files", "level0_files_cmpct_trigger"});
   args::ValueFlag<int> compaction_pri_cmd(group1, "compaction_pri", "[Compaction priority: 1 for kMinOverlappingRatio, 2 for kByCompensatedSize, 3 for kOldestLargestSeqFirst, 4 for kOldestSmallestSeqFirst; def: 2]", {'C', "compaction_pri"});
   args::ValueFlag<int> compaction_style_cmd(group1, "compaction_style", "[Compaction style: 1 for kCompactionStyleLevel, 2 for kCompactionStyleUniversal, 3 for kCompactionStyleFIFO, 4 for kCompactionStyleNone; def: 1]", {'c', "compaction_style"});
   args::ValueFlag<double> bits_per_key_cmd(group1, "bits_per_key", "The number of bits per key assigned to Bloom filter [def: 10]", {'b', "bits_per_key"});
@@ -338,7 +349,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   //num_lookup_threads = num_lookup_threads_cmd ? args::get(num_lookup_threads_cmd) : 1;
   _env->compaction_pri = compaction_pri_cmd ? args::get(compaction_pri_cmd) : 1;
   _env->level_compaction_dynamic_level_bytes = no_dynamic_compaction_level_bytes_cmd ? false : true;
-  _env->level0_file_num_compaction_trigger = level0_file_num_compaction_trigger_cmd ? args::get(level0_file_num_compaction_trigger_cmd) : 2;
+  _env->level0_file_num_compaction_trigger = level0_file_num_compaction_trigger_cmd ? args::get(level0_file_num_compaction_trigger_cmd) : 4;
   _env->no_block_cache = no_block_cache_cmd ? true : false;
   _env->low_pri = low_pri_cmd ? true : false;
   _env->block_cache_capacity = block_cache_capacity_cmd ? args::get(block_cache_capacity_cmd) : 8*1024;

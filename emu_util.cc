@@ -605,6 +605,62 @@ void printBFBitsPerKey(DB *db) {
   }
 }
 
+void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list) {	
+  assert(naive_monkey_bits_per_key_list);
+  assert(naive_monkey_bits_per_key_list->size() > 0);
+  const double log_2_squared = std::pow(std::log(2), 2);
+  size_t num_files = (num_entries + num_entries_per_table - 1)/num_entries_per_table;
+  std::cout << "num_files : " << num_files << std::endl;
+  uint64_t total_filter_memory = overall_bits_per_key*num_entries;
+  if (num_files <= max_files_in_L0 || size_ratio == 1.0) {
+    // assign the same bits-per-key if the workload fits in L0 (the size of each L0 file is roughly the same)
+    naive_monkey_bits_per_key_list->resize(naive_monkey_bits_per_key_list->size(), overall_bits_per_key);
+  }
+  assert(size_ratio > 1);
+  size_t num_levels = std::min((size_t) std::ceil(std::log((num_files - max_files_in_L0)* (size_ratio - 1.0)*1.0/size_ratio + 1)/std::log(size_ratio)) + 1,
+      naive_monkey_bits_per_key_list->size()) - 1;
+
+  double S1 = max_files_in_L0*num_entries_per_table*1.0/log_2_squared;
+  double S2 = S1*std::log(S1);
+  double base = size_ratio*num_entries_per_table*1.0/log_2_squared;
+  for (size_t i = 0; i < num_levels; i++) {
+    S1 += base;
+    S2 += base*std::log(base);
+    base *= size_ratio;
+  }
+  double log_lambda = -(total_filter_memory + S2)/S1;
+  size_t max_level_with_filter = num_levels;
+  while (log_lambda  + max_level_with_filter*std::log(size_ratio) + std::log(num_entries_per_table) > -log_2_squared &&
+    max_level_with_filter >= 1) {
+    S2 -= base*std::log(base);
+    S1 -= base;
+    max_level_with_filter--;
+    log_lambda = -(total_filter_memory + S2)/S1;
+  }
+
+  naive_monkey_bits_per_key_list->at(0) = 
+    -(log_lambda + std::log(max_files_in_L0*num_entries_per_table/log_2_squared))/log_2_squared;
+  for (size_t i = max_level_with_filter; i + 1 < naive_monkey_bits_per_key_list->size(); i++) {
+    naive_monkey_bits_per_key_list->at(i + 1) = 0.0;
+  }
+  base = size_ratio*num_entries_per_table;
+  for (size_t i = 1; i <= max_level_with_filter; i++) {
+    naive_monkey_bits_per_key_list->at(i) = 
+    -(log_lambda + std::log(base*1.0/log_2_squared))/log_2_squared;
+    if (naive_monkey_bits_per_key_list->at(i) < 1.0) {
+      naive_monkey_bits_per_key_list->at(i) = 0.0;
+    }
+    base *= size_ratio;
+  }
+
+  std::cout << "Configuring naive Monkey bpk list: ";
+  for (size_t i = 0; i + 1 < naive_monkey_bits_per_key_list->size(); i++) {
+    std::cout << naive_monkey_bits_per_key_list->at(i) << ",";
+  }
+  std::cout << naive_monkey_bits_per_key_list->back() << std::endl;
+}
+
 void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_t runs) {
   int l = 16;
   std::cout << std::endl;
@@ -1312,6 +1368,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         DbStats stats_ground_truth;
         collectDbStats(_db, &stats_to_be_evaluated, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, _env->poiont_read_learning_rate);
         collectDbStats(ground_truth_db, &stats_ground_truth);
+	if (stats_ground_truth.num_entries == 0) {
+		stats_ground_truth.num_entries = stats_to_be_evaluated.num_entries;
+	}
         CloseDB(ground_truth_db, *flush_op);
         point_reads_statistics_distance_collector->push_back(SimilarityResult(
                                 ComputePointQueriesStatisticsByEuclideanDistance(stats_to_be_evaluated, stats_ground_truth),
@@ -1380,7 +1439,9 @@ uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity) {
       if (verbosity > 0) {
         std::cout << " Level " << i << ": ";
         std::cout << " used data blocks (" << perf_context_single_level.used_data_block_count << ") ";
-        std::cout << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << std::endl;
+        std::cout << " filter/index hits(" << perf_context_single_level.block_cache_hit_count << ") ";
+        std::cout << " filter/index misses(" << perf_context_single_level.block_cache_miss_count << ") ";
+        std::cout << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << " with (full positive: " << perf_context_single_level.bloom_filter_full_positive << ")" << std::endl;
       }
     }
   }

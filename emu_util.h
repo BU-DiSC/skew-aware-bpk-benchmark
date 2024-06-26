@@ -50,6 +50,8 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *o
 Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal,Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
   ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
 
+void getNaiveMonkeyBitsPerKey(size_t num_ingestion, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list);
 
 // Other helper functions
 void printBFBitsPerKey(DB *db);

@@ -11,5 +11,5 @@ do
 	mkdir -p "output${i}"
 	mv output/*.txt output${i}/
 done
-#mkdir -p "agg_output/"
-#python3 merge.py ${runs} agg_output/
+mkdir -p "agg_output/"
+python3 merge.py ${runs} agg_output/
