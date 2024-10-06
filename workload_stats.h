@@ -207,6 +207,7 @@ struct QueryTracker {
   uint64_t filter_block_read_count = 0;         // total number of filter block reads
   uint64_t index_block_read_count = 0;         // total number of index block reads
   uint64_t data_block_read_count = 0; // total number of data block reads
+  uint64_t data_block_cached_count = 0; // total number of data blocks added to cache
   uint64_t block_cache_index_hit_count = 0;         
   uint64_t block_cache_filter_hit_count = 0;         
   uint64_t bytes_read = 0;                      // total bytes by IO read

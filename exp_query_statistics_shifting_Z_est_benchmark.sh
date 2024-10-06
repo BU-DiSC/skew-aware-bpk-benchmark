@@ -13,8 +13,8 @@ DB_HOME="./db_working_home"
 #<<comment
 cd ../workload_generator_scripts
 N=4000000
-Q=10000000
-U=6000000
+Q=6000000
+U=4000000
 sed -i '2s/I=".*"/I="XXX\"/' context_switch_workload_Z.sh
 sed -i "2s/XXX/${N}/" context_switch_workload_Z.sh
 sed -i '3s/Q=".*"/Q="YYY\"/' context_switch_workload_Z.sh

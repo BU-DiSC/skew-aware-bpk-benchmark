@@ -11,7 +11,6 @@ WORKLOAD_HOME="/scratchHDDa/zczhu/dynamic_bpk_emulation/workload_generator_scrip
 #WORKLOAD_HOME="/scratchHDDb/zczhu/K-V-Workload-Generator/"
 #DB_HOME="./db_working_home"
 Z_list=("1.0" "0.75" "0.5" "0.25" "0.1" "0.05" "0.01" "0.0")
-Z_list=("1.0" "0.0")
 ZD_list=("0" "1")
 NDEV="5.0"
 NMP="0.95"
@@ -19,9 +18,8 @@ NMP="0.95"
 #ZD_list=("3")
 BCC=65536
 bpk_list=("1.0" "1.5" "2.0" "2.5" "3.0" "3.5" "4.0" "4.5" "5.0" "5.5" "6.0" "6.5" "7.0" "7.5" "8.0" "8.5" "9.0" "9.5" "10.0" "10.5" "11.0")
-#bpk_list=("11.0")
-#bpk_list=("2.0" "3.0" "4.0" "5.0" "6.0" "7.0" "8.0" "9.0" "10.0" "11.0")
-#bpk_list=("4.0" "6.0" "8.0")
+bpk_list=("2.0" "3.0" "4.0" "5.0" "6.0" "7.0" "8.0" "9.0" "10.0" "11.0")
+bpk_list=("4.0" "6.0" "8.0")
 mkdir -p "output-bpk/"
 for ZD in ${ZD_list[@]}
 do
@@ -45,12 +43,19 @@ do
 			#rm ${DB_HOME}-optimal/*
 		done
 		#cp ../workload_generator_scripts/Z${Z}_ZD${ZD}_query_workload.txt ./output/
-		cd output-bpk/
-		./grep_accessed_data_blocks_by_bpk_microbenchmark.sh ${ZD} ${Z} > data_blocks_ZD${ZD}_Z${Z}_result.txt
+		#cd output-bpk/
+		#./grep_accessed_data_blocks_by_bpk_microbenchmark.sh ${ZD} ${Z} > data_blocks_ZD${ZD}_Z${Z}_result.txt
 		#./grep_accessed_data_blocks_by_bpk_microbenchmark_NMP.sh ${ZD} ${Z} > data_blocks_ZD${ZD}_Z${Z}_NMP${NMP}_result.txt
-		./grep_query_latency_by_bpk_microbenchmark.sh ${ZD} ${Z} > query_latency_ZD${ZD}_Z${Z}_result.txt
-		cd -
+		#./grep_query_latency_by_bpk_microbenchmark.sh ${ZD} ${Z} > query_latency_ZD${ZD}_Z${Z}_result.txt
+		#cd -
 	done
-	
+	for bpk in ${bpk_list[@]}
+	do
+		cd output-bpk/
+		./grep_accessed_data_blocks_by_Z_microbenchmark.sh ${ZD} ${bpk} > data_blocks_ZD${ZD}_bpk-${bpk}_result.txt
+		./grep_query_latency_by_Z_microbenchmark.sh ${ZD} ${bpk} > query_latency_ZD${ZD}_bpk-${bpk}_result.txt
+		cd -
+
+	done
 done
 #cp ../workload_generator_scripts/ingestion_workload.txt output/

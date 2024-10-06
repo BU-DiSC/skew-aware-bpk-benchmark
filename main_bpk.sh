@@ -12,4 +12,4 @@ do
 	cd -
 done
 mkdir -p "agg_output_by_bpk/"
-python3 merge_by_bpk.py ${runs} agg_output_by_bpk/
+python3 merge_by_bpk_microbenchmark.py ${runs} agg_output_by_bpk/

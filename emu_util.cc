@@ -125,6 +125,17 @@ void resetPointReadsStats(DB* db) {
   }
 }
 
+double getCurrentAverageBitsPerKey(DB* db, const Options *op) {
+  auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
+  const auto* vstorage = cfd->current()->storage_info();
+
+  uint64_t agg_BF_size = vstorage->GetCurrentTotalFilterSize();
+  uint64_t agg_num_entries_in_BF = vstorage->GetCurrentTotalNumEntries();
+  
+  if (agg_num_entries_in_BF == 0) return 0.0;
+  return (double) agg_BF_size*8.0/agg_num_entries_in_BF;
+}
+
 void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_t start_global_point_read_number, double learning_rate) {
   auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
   const auto* vstorage = cfd->current()->storage_info();
@@ -154,11 +165,13 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_
     for (uint32_t j = 0; j < level_files.size(); j++) {
       level_file = level_files[j];
       stats->level2entries[i] += level_file->num_entries - level_file->num_range_deletions;
+      uint64_t min_num_point_reads = 0;
       if (i == 0) {
         stats->entries_in_level0[j] = level_file->num_entries - level_file->num_range_deletions;
+	min_num_point_reads = round(level_file->stats.start_global_point_read_number*vstorage->GetAvgNumPointReadsPerLvl0File());
       }
       stats->num_entries += level_file->num_entries - level_file->num_range_deletions;
-      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate);
+      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1, min_num_point_reads);
       num_point_reads = result.first;
       num_existing_point_reads = result.second;
       uint64_t filenumber = level_file->fd.GetNumber();
@@ -202,47 +215,52 @@ Status createNewSstFile(const std::string filename_to_read, const std::string fi
 
 Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
   ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats) {
-  if (db_stats.num_levels <= 1) return Status::OK(); // do nothing when L <= 1
-  // plain monkey does not optimizes for level 0 because the size ratio is specified between MemTable and Level 1
-  uint64_t num_entries = db_stats.num_entries;
-  uint64_t num_entries_in_level0 = 0;
-  for (uint32_t i = 0; i < db_stats.entries_in_level0.size(); i++) {
-    num_entries_in_level0 += db_stats.entries_in_level0[i];
-  }
-  if (num_entries <= num_entries_in_level0) return Status::OK();
-  uint32_t L = db_stats.num_levels;
-  if (num_entries_in_level0 > 0) {
-    L--;
-    if (L <= 1) {
-      return Status::OK();
-    }
-  }
-  num_entries -= num_entries_in_level0;
+  
+  std::vector<double> bpk_list (_env->num_levels, _env->bits_per_key);
+    getNaiveMonkeyBitsPerKey(db_stats.num_entries, floor(_env->buffer_size/_env->entry_size), _env->size_ratio, 
+            _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list, _env->level_compaction_dynamic_level_bytes, true);
+
+  // if (db_stats.num_levels <= 1) return Status::OK(); // do nothing when L <= 1
+  // // plain monkey does not optimizes for level 0 because the size ratio is specified between MemTable and Level 1
+  // uint64_t num_entries = db_stats.num_entries;
+  // uint64_t num_entries_in_level0 = 0;
+  // for (uint32_t i = 0; i < db_stats.entries_in_level0.size(); i++) {
+  //   num_entries_in_level0 += db_stats.entries_in_level0[i];
+  // }
+  // if (num_entries <= num_entries_in_level0) return Status::OK();
+  // uint32_t L = db_stats.num_levels;
+  // if (num_entries_in_level0 > 0) {
+  //   L--;
+  //   if (L <= 1) {
+  //     return Status::OK();
+  //   }
+  // }
+  // num_entries -= num_entries_in_level0;
 
   const double log_2_squared = std::pow(std::log(2), 2);
-  uint64_t total_filter_memory = num_entries * _env->bits_per_key;
-  std:: cout << "Total memory: " << total_filter_memory << std::endl;
-  double T = _env->size_ratio;
-  double X = std::log(T)/(log_2_squared*(T - 1));
-  uint32_t Y = 0;
-  if (X >= T*_env->bits_per_key) {
-    Y =  (uint32_t) floor(std::log(X/_env->bits_per_key)/std::log(T));
-  }
-  if (Y >= L) return Status::OK();
-  double R = std::exp(-_env->bits_per_key*log_2_squared*std::pow(T, Y)) * std::pow(T, T/(T-1))/(T-1) + Y;
+  // uint64_t total_filter_memory = num_entries * _env->bits_per_key;
+  // std:: cout << "Total memory: " << total_filter_memory << std::endl;
+  // double T = _env->size_ratio;
+  // double X = std::log(T)/(log_2_squared*(T - 1));
+  // uint32_t Y = 0;
+  // if (X >= T*_env->bits_per_key) {
+  //   Y =  (uint32_t) floor(std::log(X/_env->bits_per_key)/std::log(T));
+  // }
+  // if (Y >= L) return Status::OK();
+  // double R = std::exp(-_env->bits_per_key*log_2_squared*std::pow(T, Y)) * std::pow(T, T/(T-1))/(T-1) + Y;
   
-  std::vector<double> bpk_by_level = std::vector<double> (L+1, 0.0);
-  double base = (R - Y)*(T - 1)/T;
-  double scale_ratio = 1.0;
-  double actual_memory = 0.0;
-  for (uint64_t i = 1; i <= L - Y ; i++) {
-    bpk_by_level[i] =  ((L - Y - i)*std::log(T) - std::log(base))/log_2_squared;
-    actual_memory += bpk_by_level[i]*db_stats.level2entries[i];
-  }
-  scale_ratio = total_filter_memory*1.0/actual_memory;
-  for (uint64_t i = 1; i <= L - Y ; i++) {
-    bpk_by_level[i] *= scale_ratio;
-  }
+  // std::vector<double> bpk_by_level = std::vector<double> (L+1, 0.0);
+  // double base = (R - Y)*(T - 1)/T;
+  // double scale_ratio = 1.0;
+  // double actual_memory = 0.0;
+  // for (uint64_t i = 1; i <= L - Y ; i++) {
+  //   bpk_by_level[i] =  ((L - Y - i)*std::log(T) - std::log(base))/log_2_squared;
+  //   actual_memory += bpk_by_level[i]*db_stats.level2entries[i];
+  // }
+  // scale_ratio = total_filter_memory*1.0/actual_memory;
+  // for (uint64_t i = 1; i <= L - Y ; i++) {
+  //   bpk_by_level[i] *= scale_ratio;
+  // }
   DBImpl::GetImplOptions get_impl_options;
   get_impl_options.column_family = db->DefaultColumnFamily();
   auto cfh = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(get_impl_options.column_family);
@@ -266,12 +284,12 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
       //std::cout << i << std::endl;
       std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
       FileMetaData* level_file;
-      double bits_per_key = 0;
-      if (i != 0) {
-        bits_per_key = bpk_by_level[i];
-      } else {
-        bits_per_key = _env->bits_per_key;
-      }
+      double bits_per_key = bpk_list[i];
+      // if (i != 0) {
+      //   bits_per_key = bpk_by_level[i];
+      // } else {
+      //   bits_per_key = _env->bits_per_key;
+      // }
       if (bits_per_key <= 0.5) {
         table_op->filter_policy.reset();
       } else {
@@ -586,6 +604,7 @@ void printBFBitsPerKey(DB *db) {
   const auto* vstorage = cfd->current()->storage_info();
     
   uint32_t num_general_levels = cfd->NumberLevels();
+  uint64_t total_tail_size = 0;
   for (int i = 0; i < num_general_levels; i++) {
     if (vstorage->LevelFiles(i).empty()){
       continue;
@@ -600,18 +619,22 @@ void printBFBitsPerKey(DB *db) {
       if (level_file->bpk != -1) {
         std::cout << filename << "(" << level_file->bpk << ", " << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") ";
       }
+      total_tail_size += level_file->tail_size;
     }
     std::cout << std::endl;
   }
+  std::cout << "Total tail size : " << total_tail_size << std::endl;
 }
 
 void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
-		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list) {	
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files) {	
   assert(naive_monkey_bits_per_key_list);
   assert(naive_monkey_bits_per_key_list->size() > 0);
   const double log_2_squared = std::pow(std::log(2), 2);
+  if (!optimize_L0_files) {
+    num_entries -= num_entries_per_table*max_files_in_L0;
+  }
   size_t num_files = (num_entries + num_entries_per_table - 1)/num_entries_per_table;
-  std::cout << "num_files : " << num_files << std::endl;
   uint64_t total_filter_memory = overall_bits_per_key*num_entries;
   if (num_files <= max_files_in_L0 || size_ratio == 1.0) {
     // assign the same bits-per-key if the workload fits in L0 (the size of each L0 file is roughly the same)
@@ -621,8 +644,13 @@ void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, 
   size_t num_levels = std::min((size_t) std::ceil(std::log((num_files - max_files_in_L0)* (size_ratio - 1.0)*1.0/size_ratio + 1)/std::log(size_ratio)) + 1,
       naive_monkey_bits_per_key_list->size()) - 1;
 
-  double S1 = max_files_in_L0*num_entries_per_table*1.0/log_2_squared;
-  double S2 = S1*std::log(S1);
+  std::cout << "num_levels : " << num_levels << "\tnum_files : " << num_files << std::endl;
+  double S1 = 0;
+  double S2 = 0;
+  if (optimize_L0_files) {
+      S1 = num_entries_per_table*1.0/log_2_squared;
+      S2 = max_files_in_L0*S1*std::log(S1);
+  }
   double base = size_ratio*num_entries_per_table*1.0/log_2_squared;
   for (size_t i = 0; i < num_levels; i++) {
     S1 += base;
@@ -638,9 +666,10 @@ void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, 
     max_level_with_filter--;
     log_lambda = -(total_filter_memory + S2)/S1;
   }
-
-  naive_monkey_bits_per_key_list->at(0) = 
-    -(log_lambda + std::log(max_files_in_L0*num_entries_per_table/log_2_squared))/log_2_squared;
+  if (optimize_L0_files) {
+    naive_monkey_bits_per_key_list->at(0) = 
+      -(log_lambda + std::log(num_entries_per_table/log_2_squared))/log_2_squared;
+  }
   for (size_t i = max_level_with_filter; i + 1 < naive_monkey_bits_per_key_list->size(); i++) {
     naive_monkey_bits_per_key_list->at(i + 1) = 0.0;
   }
@@ -653,7 +682,24 @@ void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, 
     }
     base *= size_ratio;
   }
+  if (dynamic_cmpct) {
+    int movement = naive_monkey_bits_per_key_list->size() - 1 - num_levels;
+    if (movement > 0) {
+      for (int i = naive_monkey_bits_per_key_list->size() - 1; i >= movement + 1; i--) {
+        naive_monkey_bits_per_key_list->at(i) = naive_monkey_bits_per_key_list->at(i - movement);
+      }
+      if (max_level_with_filter >= 1) {
+        for (size_t i = 2; i <= movement && i < naive_monkey_bits_per_key_list->size(); i++) {
+          naive_monkey_bits_per_key_list->at(i) = naive_monkey_bits_per_key_list->at(1);
+        }
+      }
+    }
+  }
 
+  if(!optimize_L0_files) {
+    naive_monkey_bits_per_key_list->at(0) = overall_bits_per_key;
+  }
+  
   std::cout << "Configuring naive Monkey bpk list: ";
   for (size_t i = 0; i + 1 < naive_monkey_bits_per_key_list->size(); i++) {
     std::cout << naive_monkey_bits_per_key_list->at(i) << ",";
@@ -839,13 +885,15 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                   << "index_accesses" << std::setfill(' ') << std::setw(l)
                                                   << "filter_blk_hit" << std::setfill(' ') << std::setw(l)
                                                   << "index_blk_hit" << std::setfill(' ') << std::setw(l)
-                                                  << "accessed_data_blks" << std::setfill(' ') << std::setw(l);
+                                                  << "accessed_data_blks" << std::setfill(' ') << std::setw(l)
+                                                  << "cached_data_blks" << std::setfill(' ') << std::setw(l);
     std::cout << std::endl;
     std::cout << std::setfill(' ') << std::setw(l) << track->filter_block_read_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->index_block_read_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_filter_hit_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_index_hit_count/runs;
     std::cout << std::setfill(' ') << std::setw(l) << track->data_block_read_count/runs;
+    std::cout << std::setfill(' ') << std::setw(l) << track->data_block_cached_count/runs;
     std::cout << std::endl;
 
     std::cout << std::setfill(' ') << std::setw(l) << "read_bytes" << std::setfill(' ') << std::setw(l)
@@ -1018,10 +1066,11 @@ void populateQueryTracker(QueryTracker *query_track, DB* _db, const BlockBasedTa
   query_track->bytes_written += get_iostats_context()->bytes_written;
   query_track->write_nanos += get_iostats_context()->write_nanos;
   query_track->cpu_write_nanos += get_iostats_context()->cpu_write_nanos;
+  query_track->data_block_cached_count += _db->GetOptions().statistics->getTickerCount(BLOCK_CACHE_DATA_ADD);
 
   // Space amp
   uint64_t live_sst_size = 0;
-  _db->GetIntProperty("rocksdb.live-sst-files-size", &live_sst_size);
+  
   uint64_t calculate_size = 1024 * (query_track->inserts_completed - query_track->point_deletes_completed);
   query_track->space_amp = static_cast<double>(live_sst_size) / calculate_size;
   std::map<std::string, std::string> cfstats;
@@ -1082,23 +1131,31 @@ void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key,
     ++query_track->total_completed;
 }
 
-void write_collected_throughput(std::vector<vector<double> > collected_throughputs, std::vector<std::string> names, std::string throughput_path, uint32_t interval) {
+void write_collected_throughput(std::vector<vector<std::pair<double, double> > > collected_throughputs, std::vector<std::string> names, std::string throughput_path, std::string bpk_path, uint32_t interval) {
   assert(collected_throughputs.size() == names.size());
   assert(collected_throughputs.size() > 0);
   ofstream throughput_ofs(throughput_path.c_str());
+  ofstream bpk_ofs(bpk_path.c_str());
   throughput_ofs << "ops";
+  bpk_ofs << "ops";
   for (int i = 0; i < names.size(); i++) {
     throughput_ofs << ",tput-" << names[i];
+    bpk_ofs << ",bpk-" << names[i];
   }
   throughput_ofs << std::endl;
+  bpk_ofs << std::endl;
   for (int j = 0; j < collected_throughputs[0].size(); j++) {
     throughput_ofs << j*interval;
+    bpk_ofs << j*interval;
     for (int i = 0; i < collected_throughputs.size(); i++) {
-      throughput_ofs << "," << collected_throughputs[i][j];
+      throughput_ofs << "," << collected_throughputs[i][j].first;
+      bpk_ofs << "," << collected_throughputs[i][j].second;
     }
     throughput_ofs << std::endl;
+    bpk_ofs << std::endl;
   }
   throughput_ofs.close();
+  bpk_ofs.close();
 }
 
 // Run a workload from memory
@@ -1107,8 +1164,9 @@ void write_collected_throughput(std::vector<vector<double> > collected_throughpu
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableOptions *table_op, 
                 const WriteOptions *write_op, const ReadOptions *read_op, const FlushOptions *flush_op,
                 EnvOptions* env_op, const WorkloadDescriptor *wd, QueryTracker *query_track,
-                std::vector<double >* throughput_collector,
+                std::vector<std::pair<double, double> >* throughput_and_bpk_collector,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector) {
+
   Status s;
   Iterator *it = _db-> NewIterator(*read_op); // for range reads
   uint64_t counter = 0, mini_counter = 0; // tracker for progress bar. TODO: avoid using these two 
@@ -1119,9 +1177,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
     point_reads_statistics_distance_collector->clear();
   }
   bool collect_throughput_flag = false;
-  if (throughput_collector != nullptr) {
+  if (throughput_and_bpk_collector != nullptr) {
     collect_throughput_flag = true;
-    throughput_collector->clear();
+    throughput_and_bpk_collector->clear();
   }
   my_clock start_clock, end_clock;    // clock to get query time
   // Clear System page cache before running
@@ -1329,18 +1387,12 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;
         if (counter != 0 && exec_time != 0) {
-          throughput_collector->push_back(counter*1.0/exec_time);
+          throughput_and_bpk_collector->emplace_back(counter*1.0/exec_time, getCurrentAverageBitsPerKey(_db, op));
+           //throughput_and_bpk_collector->push_back(get_iostats_context()->bytes_read);
         } else {
-          throughput_collector->push_back(0.0);
+          throughput_and_bpk_collector->emplace_back(0.0, _env->bits_per_key);
         }
       }
-      uint64_t ops = query_track->inserts_completed + 
-        query_track->updates_completed + query_track->point_deletes_completed + 
-        query_track->range_deletes_completed + query_track->point_lookups_completed +
-        query_track->zero_point_lookups_completed;
-     
-      
-      
     }
     if (eval_point_read_statistics_accuracy_flag) {
       uint32_t ingestion_num = query_track->inserts_completed + 
@@ -1354,7 +1406,10 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         assert(s.ok());
         s = BackgroundJobMayAllCompelte(_db);
         assert(s.ok());
-        std::string copy_db_cmd = "mkdir -p " +  _env->path + "-temp && rm " + _env->path + "-temp/* && cp " + _env->path + "-to-be-eval/* " + _env->path + "-temp/";
+        std::string create_temp_dir_cmd = "mkdir -p " +  _env->path + "-temp && rm " + _env->path + "-temp/*";
+        system(create_temp_dir_cmd.c_str());
+        sleep_for_ms(WAIT_INTERVAL*10);
+        std::string copy_db_cmd = "cp " + _env->path + "-to-be-eval/* " + _env->path + "-temp/";
         system(copy_db_cmd.c_str());
 	op->point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
         s = DB::Open(*op, _env->path + "-temp", &ground_truth_db);
@@ -1377,6 +1432,32 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
                                 ComputePointQueriesStatisticsByCosineSimilarity(stats_to_be_evaluated, stats_ground_truth),
                                 ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 1),
 				ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 2)));
+	if (point_reads_statistics_distance_collector->back().euclidean_distance.second > 1000000) {
+		double xxx = 0;
+		for(auto iter = stats_ground_truth.leveled_fileID2empty_queries[0].second.begin();
+				iter != stats_ground_truth.leveled_fileID2empty_queries[0].second.end(); iter++) {
+		  std::cout << iter->first << "\t" << iter->second << "\t";
+		  if (stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.find(iter->first) !=
+				  stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.end()) {
+			  std::cout << stats_to_be_evaluated.leveled_fileID2empty_queries[0].second[iter->first];
+			  xxx += std::pow(stats_to_be_evaluated.leveled_fileID2empty_queries[0].second[iter->first] - iter->second, 2.0);
+		  } else {
+			  std::cout << "Not Found" << std::endl;
+			  xxx += std::pow(iter->second, 2.0);
+		  }
+		  std::cout << std::endl;
+		}
+                for(auto iter = stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.begin();
+				iter != stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.end(); iter++) {
+		  if (stats_ground_truth.leveled_fileID2empty_queries[0].second.find(iter->first) ==
+				  stats_ground_truth.leveled_fileID2empty_queries[0].second.end()) {
+		          std::cout << iter->first << "\t" << iter->second << "\t" << std::endl;
+			  xxx += std::pow(iter->second, 2.0);
+		  } 
+		}
+		counter++;
+		counter--;
+	}
         eval_point_read_statistics_accuracy_count = ingestion_num/_env->eval_point_read_statistics_accuracy_interval;
       }
     }
@@ -1387,9 +1468,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;
         if (counter != 0 && exec_time != 0) {
-          throughput_collector->push_back(counter*1.0/exec_time);
+          throughput_and_bpk_collector->emplace_back(counter*1.0/exec_time, getCurrentAverageBitsPerKey(_db, op));
         } else {
-          throughput_collector->push_back(0.0);
+          throughput_and_bpk_collector->emplace_back(0.0, _env->bits_per_key);
         }
   }
 

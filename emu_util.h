@@ -40,6 +40,7 @@ Status BackgroundJobMayAllCompelte(DB *&db);
 
 void resetPointReadsStats(DB* db);
 
+double getCurrentAverageBitsPerKey(DB* db, const Options *op);
 void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats = false, uint64_t start_global_point_read_number=0, double learning_rate=1.0);
 Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, const Options *op,
   EnvOptions *env_op, const ReadOptions *read_op);
@@ -51,7 +52,7 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal,Options *op
   ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
 
 void getNaiveMonkeyBitsPerKey(size_t num_ingestion, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
-		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list);
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files);
 
 // Other helper functions
 void printBFBitsPerKey(DB *db);
@@ -70,13 +71,13 @@ void dump_query_stats(const DbStats & db_stats, const std::string & path);
 
 void print_point_read_stats_distance_collector(std::vector<SimilarityResult >* point_reads_statistics_distance_collector);
 
-void write_collected_throughput(std::vector<vector<double> > collected_throughputs, std::vector<std::string> names, std::string path, uint32_t interval);
+void write_collected_throughput(std::vector<vector<std::pair<double, double>> > collected_throughputs, std::vector<std::string> names, std::string throughput_path, std::string bpk_path, uint32_t interval);
 
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op,
                 const BlockBasedTableOptions *table_op, const WriteOptions *write_op, 
                 const ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions* env_op, 
                 const WorkloadDescriptor *wd, QueryTracker *query_track,
-                std::vector<double >* throughput_collector = nullptr,
+                std::vector<std::pair<double, double> >* throughput_collector = nullptr,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector = nullptr);   // run_workload internal
 
 // utilities for cpu usage measuring COPIED FROM "https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process"

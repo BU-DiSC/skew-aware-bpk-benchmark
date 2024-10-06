@@ -338,6 +338,8 @@ void writePointReadStatsDiff(std::vector<std::vector<SimilarityResult >* > point
       for(const string& name:names) {
         num_empty_point_reads_stats_diff_ofs << ",Lvl" << l << "-leveled-cosine-similarity-" << name;
       }
+    }
+    for (size_t l = 0; l < num_actual_levels; l++) {
       for(const string& name:names) {
         num_empty_point_reads_stats_diff_ofs << ",Lvl" << l << "-leveled-euclidean-distance-" << name;
       }

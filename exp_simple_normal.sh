@@ -30,13 +30,13 @@ do
 			#echo "./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} --dw --dr > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_simple_mixed_workload.txt"
 			#./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_simple_mixed_no_direct_workload.txt
 			echo "./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.05_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.05_simple_mixed_no_direct_workload.txt"
-			./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.05_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.05_simple_mixed_no_direct_workload.txt
-			echo "./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.95_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.95_simple_mixed_no_direct_workload2.txt"
-			./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.95_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.95_simple_mixed_no_direct_workload2.txt
+			#./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.05_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.05_simple_mixed_no_direct_workload.txt
+			#echo "./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.95_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.95_simple_mixed_no_direct_workload2.txt"
+			#./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_NMP0.95_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct --BCHPR ${BCHPR} > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_NMP0.95_simple_mixed_no_direct_workload2.txt
 			#./simple_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --qwp ../workload_generator_scripts/Z${Z}_ZD${ZD}_simple_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --no_dynamic_cmpct > ${dir}/Z${Z}_ZD${ZD}_bpk-${bpk}_output_simple_mixed_workload.txt
-			rm ${DB_HOME}/*
-			rm ${DB_HOME}-monkey/*
-			rm ${DB_HOME}-workloadaware/*
+			#rm ${DB_HOME}/*
+			#rm ${DB_HOME}-monkey/*
+			#rm ${DB_HOME}-workloadaware/*
 		done
 		#cp ../workload_generator_scripts/Z${Z}_ZD${ZD}_query_workload.txt ./${dir}/
 

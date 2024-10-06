@@ -81,16 +81,7 @@ std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseD
       result.push_back(ComputePointQueriesStatisticsByEuclideanDistance(temp_stats1, temp_stats2));
     } else {
       result.push_back(ComputePointQueriesStatisticsByCosineSimilarity(temp_stats1, temp_stats2));
-    }
-
-    if (result.back().first > 1000000) {
-      ComputePointQueriesStatisticsByEuclideanDistance(temp_stats1, temp_stats2);
-      agg_num_point_reads_euclidean_distance++;
-      agg_num_point_reads_euclidean_distance--;
-    }
-    
-    
-    
+    } 
   }  
   return result;
 }

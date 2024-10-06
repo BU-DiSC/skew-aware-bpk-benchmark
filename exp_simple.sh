@@ -10,10 +10,11 @@ BCHPR="0.9"
 #BCC=262144
 # Remember to specify a path for your dedicated storage device
 DB_HOME="./db_working_home"
+DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
 
 Z_list=("0.0" "0.5" "1.0")
 #ZD_list=("0" "3")
-#Z_list=("1.0")
+Z_list=("0.5")
 #ZD_list=("0" "3")
 ZD_list=("1")
 bpk_list=("5.0" "6.0" "7.0")

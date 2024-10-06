@@ -14,6 +14,7 @@
 #include <iomanip>
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/env.h"
 #include "args.hxx"
 #include "aux_time.h"
 #include "emu_environment.h"
@@ -135,9 +136,8 @@ int runExperiments(EmuEnv* _env) {
     runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
     
     s = CloseDB(db, flush_options);
-	  assert(s.ok());
-    
-	  s= DB::Open(options, _env->path, &db);
+    assert(s.ok());
+    s= DB::Open(options, _env->path, &db);
     assert(s.ok());
     db->GetOptions().statistics->Reset();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
@@ -189,6 +189,14 @@ int runExperiments(EmuEnv* _env) {
     //std::cout << " Total number of false positive queries: " << db_stats.num_total_empty_queries << std::endl;
     options.disable_auto_compactions = true;
     createDbWithMonkey(_env, db, db_monkey, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, db_stats);
+    if (_env->block_cache_capacity == 0) {
+      ;// do nothing
+    } else {
+      table_options.block_cache.reset();
+      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      ;// invoke manual block_cache
+    }
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     ReopenDB(db_monkey, options, flush_options);
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -212,6 +220,9 @@ int runExperiments(EmuEnv* _env) {
       monkey_query_track->zero_point_lookups_cost)/(monkey_query_track->point_lookups_completed + monkey_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
     if (_env->verbosity > 0) {
+      if(table_options.block_cache){
+        std::cout << "rocksdb.block_cache_usage:" << table_options.block_cache->GetUsage() << std::endl;
+      }
       printEmulationOutput(_env, monkey_query_track);
     }
     if (_env->verbosity > 1) {
@@ -224,6 +235,14 @@ int runExperiments(EmuEnv* _env) {
 
     
     createDbWithMonkeyPlus(_env, db, db_monkey_plus, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, db_stats);
+    if (_env->block_cache_capacity == 0) {
+      ;// do nothing
+    } else {
+      table_options.block_cache.reset();
+      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      ;// invoke manual block_cache
+    }
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     ReopenDB(db_monkey_plus, options, flush_options);
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -247,6 +266,9 @@ int runExperiments(EmuEnv* _env) {
       monkey_plus_query_track->zero_point_lookups_cost)/(monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
     if (_env->verbosity > 0) {
+      if(table_options.block_cache){
+        std::cout << "rocksdb.block_cache_usage:" << table_options.block_cache->GetUsage() << std::endl;
+      }
       printEmulationOutput(_env, monkey_plus_query_track);
     }
     if (_env->verbosity > 1) {
@@ -257,7 +279,15 @@ int runExperiments(EmuEnv* _env) {
     delete monkey_plus_query_track;
     CloseDB(db_monkey_plus, flush_options);
 
+    if (_env->block_cache_capacity == 0) {
+      ;// do nothing
+    } else {
+      table_options.block_cache.reset();
+      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      ;// invoke manual block_cache
+    }
     createDbWithOptBpk(_env, db, db_optimal, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, db_stats);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     ReopenDB(db_optimal, options, flush_options);
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -273,7 +303,6 @@ int runExperiments(EmuEnv* _env) {
       printEmulationOutput(_env, optimal_query_track);
       if(table_options.block_cache){
         std::cout << "rocksdb.block_cache_usage:" << table_options.block_cache->GetUsage() << std::endl;
-        query_track->block_cache_usage += table_options.block_cache->GetUsage();
       }
     }
     bloom_false_positives = optimal_query_track->bloom_sst_hit_count - optimal_query_track->bloom_sst_true_positive_count;
@@ -284,9 +313,6 @@ int runExperiments(EmuEnv* _env) {
     if (optimal_query_track->point_lookups_completed + optimal_query_track->zero_point_lookups_completed > 0) {
       std::cout << std::fixed << std::setprecision(6) << "point query latency (optimal): " <<  static_cast<double>(optimal_query_track->point_lookups_cost +
       optimal_query_track->zero_point_lookups_cost)/(optimal_query_track->point_lookups_completed + optimal_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
-    }
-    if (_env->verbosity > 0) {
-      printEmulationOutput(_env, optimal_query_track);
     }
     if (_env->verbosity > 1) {
       std::string state;

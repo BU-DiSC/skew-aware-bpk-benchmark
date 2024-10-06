@@ -8,12 +8,13 @@ epri=200000
 R=3
 # Remember to specify a path for your RAM disk
 DB_HOME="./db_working_home"
+DB_HOME="./mnt/ramd/zczhu/db_working_home"
 #Z_list=("0.0")
 #ZD_list=("3")
 cd ../workload_generator_scripts
 N=4000000
 Q=6000000
-U=10000000
+U=4000000
 sed -i '2s/I=".*"/I="XXX\"/' context_switch_workload_distribution.sh
 sed -i "2s/XXX/${N}/" context_switch_workload_distribution.sh
 sed -i '3s/Q=".*"/Q="YYY\"/' context_switch_workload_distribution.sh

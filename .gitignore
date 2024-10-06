@@ -9,6 +9,10 @@ query_statistics_est_benchmark_result/
 db_working_home*
 .vscode/
 output/*.txt
+output-*/
 output-NVM0/
 simple_benchmark
+simple_benchmark_2
 simple_benchmark_debug
+simple_benchmark_2_debug
+
