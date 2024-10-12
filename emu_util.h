@@ -41,7 +41,7 @@ Status BackgroundJobMayAllCompelte(DB *&db);
 void resetPointReadsStats(DB* db);
 
 double getCurrentAverageBitsPerKey(DB* db, const Options *op);
-void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats = false, uint64_t start_global_point_read_number=0, double learning_rate=1.0);
+void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats = false, uint64_t start_global_point_read_number=0, double learning_rate=1.0, bool estimate_flag=false);
 Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, const Options *op,
   EnvOptions *env_op, const ReadOptions *read_op);
 Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,

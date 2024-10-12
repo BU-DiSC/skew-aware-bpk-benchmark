@@ -5,7 +5,7 @@ B=32
 T=4
 E=512
 epri=200000
-R=1
+R=3
 # Remember to specify a path for your RAM disk
 DB_HOME="/scratchNVM0/zczhu/test_db_dir/db_working_home"
 DB_HOME="/mnt/ramd/zczhu/db_working_home"

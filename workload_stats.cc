@@ -141,6 +141,7 @@ void loadWorkload(WorkloadDescriptor *wd) {
 	char mode;
   BaseEntry *tmp = nullptr;
   f.open(wd->path_);
+  std::cout << "Use workload of path : " << wd->path_.c_str() << std::endl;
   assert(f);
   while(f >> mode) {
     QueryDescriptor qd;
