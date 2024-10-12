@@ -10,6 +10,7 @@ db_working_home*
 .vscode/
 output/*.txt
 output-*/
+plain-output-bpk/*
 output-NVM0/
 simple_benchmark
 simple_benchmark_2

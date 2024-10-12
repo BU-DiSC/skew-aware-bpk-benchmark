@@ -130,6 +130,9 @@ double getCurrentAverageBitsPerKey(DB* db, const Options *op) {
   const auto* vstorage = cfd->current()->storage_info();
 
   uint64_t agg_BF_size = vstorage->GetCurrentTotalFilterSize();
+  if (agg_BF_size > vstorage->GetSkippedFilterSize()) {
+	  agg_BF_size -= vstorage->GetSkippedFilterSize();
+  }
   uint64_t agg_num_entries_in_BF = vstorage->GetCurrentTotalNumEntries();
   
   if (agg_num_entries_in_BF == 0) return 0.0;
@@ -164,14 +167,9 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_
     }
     for (uint32_t j = 0; j < level_files.size(); j++) {
       level_file = level_files[j];
-      stats->level2entries[i] += level_file->num_entries - level_file->num_range_deletions;
-      uint64_t min_num_point_reads = 0;
-      if (i == 0) {
-        stats->entries_in_level0[j] = level_file->num_entries - level_file->num_range_deletions;
-	min_num_point_reads = round(level_file->stats.start_global_point_read_number*vstorage->GetAvgNumPointReadsPerLvl0File());
-      }
+      stats->level2entries[i] += level_file->num_entries - level_file->num_range_deletions; 
       stats->num_entries += level_file->num_entries - level_file->num_range_deletions;
-      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1, min_num_point_reads);
+      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1);
       num_point_reads = result.first;
       num_existing_point_reads = result.second;
       uint64_t filenumber = level_file->fd.GetNumber();
@@ -609,6 +607,8 @@ void printBFBitsPerKey(DB *db) {
     if (vstorage->LevelFiles(i).empty()){
       continue;
     }
+    double total_bits = 0;
+    double total_entries = 0;
     std::cout << " Level " << i << " : "; 
     std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
     FileMetaData* level_file;
@@ -618,10 +618,13 @@ void printBFBitsPerKey(DB *db) {
       std::string filename = MakeTableFileName(filenumber);
       if (level_file->bpk != -1) {
         std::cout << filename << "(" << level_file->bpk << ", " << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") ";
+	total_bits += level_file->bpk*(level_file->num_entries - level_file->num_range_deletions);
+	total_entries += level_file->num_entries - level_file->num_range_deletions;
       }
       total_tail_size += level_file->tail_size;
     }
     std::cout << std::endl;
+    std::cout << "Level " << i << " Avg BPK : " << total_bits*1.0/total_entries << std::endl;
   }
   std::cout << "Total tail size : " << total_tail_size << std::endl;
 }

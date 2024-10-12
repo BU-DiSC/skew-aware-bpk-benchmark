@@ -71,13 +71,13 @@ int main(int argc, char *argv[]) {
             << experiment_exec_time/1000000 << "ms !! ===== "<< std::endl;
   
   // show average results for the number of experiment runs
-  // printEmulationOutput(_env, &global_query_tracker, _env->experiment_runs);
+  printEmulationOutput(_env, &global_query_tracker, _env->experiment_runs);
   //std::cout << "==========================================================" << std::endl;
   printEmulationOutput(_env, &global_monkey_top_down_query_tracker, _env->experiment_runs);
   std::cout << "==========================================================" << std::endl;
   printEmulationOutput(_env, &global_monkey_bottom_up_query_tracker, _env->experiment_runs);
-  //std::cout << "==========================================================" << std::endl;
-  //printEmulationOutput(_env, &global_mnemosyne_query_tracker, _env->experiment_runs);
+  std::cout << "==========================================================" << std::endl;
+  printEmulationOutput(_env, &global_mnemosyne_query_tracker, _env->experiment_runs);
   
   std::cout << "===== Average stats of " << _env->experiment_runs << " runs ====="  << std::endl;
 
@@ -99,9 +99,6 @@ int runExperiments(EmuEnv* _env) {
  
   WorkloadDescriptor query_wd(_env->query_wpath);
  
-  //WorkloadDescriptor wd(workloadPath);
-  // init RocksDB configurations and experiment settings
-  configOptions(_env, &options, &table_options, &write_options, &read_options, &flush_options);
    EnvOptions env_options (options);
   // parsing workload
   loadWorkload(&query_wd);
@@ -110,12 +107,17 @@ int runExperiments(EmuEnv* _env) {
   std::vector<std::pair<double, double>> throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> monkey_top_down_throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> monkey_bottom_up_throughput_and_bpk_collector;
-   std::vector<std::pair<double, double>> mnemosyne_throughput_and_bpk_collector;
+  std::vector<std::pair<double, double>> mnemosyne_throughput_and_bpk_collector;
   std::vector<std::pair<double, double>> temp_collector;
 
   // Starting experiments
   assert(_env->experiment_runs >= 1);
   for (int i = 0; i < _env->experiment_runs; ++i) {
+
+    //WorkloadDescriptor wd(workloadPath);
+    // init RocksDB configurations and experiment settings
+    configOptions(_env, &options, &table_options, &write_options, &read_options, &flush_options);
+
     // Reopen DB 
     if (_env->destroy) {
       DestroyDB(_env->path, options);
@@ -126,6 +128,7 @@ int runExperiments(EmuEnv* _env) {
     Status s;
     // Prepare Perf and I/O stats
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
     
     QueryTracker *query_track = new QueryTracker();
     
@@ -182,7 +185,7 @@ int runExperiments(EmuEnv* _env) {
     delete query_track;
     get_perf_context()->ClearPerLevelPerfContext();
     CloseDB(db, flush_options);
-   
+  
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
@@ -323,6 +326,7 @@ int runExperiments(EmuEnv* _env) {
     table_options.max_modulars = 5;
     //options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
     //options.track_point_read_number_window_size = 16;
     s = DB::Open(options, _env->path + "-mnemosyne", &db_mnemosyne);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
@@ -372,15 +376,23 @@ int runExperiments(EmuEnv* _env) {
     delete mnemosyne_query_track;
 
     CloseDB(db_mnemosyne, flush_options);
+
+    if (_env->block_cache_capacity == 0) {
+      ;// do nothing
+    } else {
+      table_options.block_cache.reset();
+      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      ;// invoke manual block_cache
+    }
     std::cout << "End of experiment run: " << i+1 << std::endl;
     std::cout << std::endl;
   }
 
   if (_env->throughput_collect_interval > 0) {
-    // for (int i = 0; i < throughput_and_bpk_collector.size(); i++) {
-    //   throughput_and_bpk_collector[i].first /= _env->experiment_runs;
-    //   throughput_and_bpk_collector[i].second /= _env->experiment_runs;
-    // }
+    for (int i = 0; i < throughput_and_bpk_collector.size(); i++) {
+       throughput_and_bpk_collector[i].first /= _env->experiment_runs;
+       throughput_and_bpk_collector[i].second /= _env->experiment_runs;
+    }
     for (int i = 0; i < monkey_top_down_throughput_and_bpk_collector.size(); i++) {
       monkey_top_down_throughput_and_bpk_collector[i].first /= _env->experiment_runs;
       monkey_top_down_throughput_and_bpk_collector[i].second /= _env->experiment_runs;
@@ -418,6 +430,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<int> compaction_pri_cmd(group1, "compaction_pri", "[Compaction priority: 1 for kMinOverlappingRatio, 2 for kByCompensatedSize, 3 for kOldestLargestSeqFirst, 4 for kOldestSmallestSeqFirst; def: 2]", {'C', "compaction_pri"});
   args::ValueFlag<int> compaction_style_cmd(group1, "compaction_style", "[Compaction style: 1 for kCompactionStyleLevel, 2 for kCompactionStyleUniversal, 3 for kCompactionStyleFIFO, 4 for kCompactionStyleNone; def: 1]", {'c', "compaction_style"});
   args::ValueFlag<double> bits_per_key_cmd(group1, "bits_per_key", "The number of bits per key assigned to Bloom filter [def: 10]", {'b', "bits_per_key"});
+  args::Flag no_dynamic_compaction_level_bytes_cmd(group1, "dynamic level compaction", "disable dynamic level compaction bytes", {"no_dynamic_cmpct", "no_dynamic_compaction"});
 
 
   args::Flag no_block_cache_cmd(group1, "block_cache", "Disable block cache", {"dis_blk_cache", "disable_block_cache"});
@@ -474,6 +487,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->verbosity = verbosity_cmd ? args::get(verbosity_cmd) : 0;
   //num_lookup_threads = num_lookup_threads_cmd ? args::get(num_lookup_threads_cmd) : 1;
   _env->compaction_pri = compaction_pri_cmd ? args::get(compaction_pri_cmd) : 1;
+  _env->level_compaction_dynamic_level_bytes = no_dynamic_compaction_level_bytes_cmd ? false : true;
   _env->level0_file_num_compaction_trigger = level0_file_num_compaction_trigger_cmd ? args::get(level0_file_num_compaction_trigger_cmd) : 4;
   _env->no_block_cache = no_block_cache_cmd ? true : false;
   _env->low_pri = low_pri_cmd ? true : false;
