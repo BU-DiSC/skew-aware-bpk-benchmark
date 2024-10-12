@@ -38,7 +38,7 @@ DB* db_monkey = nullptr;
 DB* db_monkey_plus = nullptr;
 DB* db_optimal = nullptr;
 
-
+bool only_collect_stats = false;
 int runExperiments(EmuEnv* _env);    // API
 int parse_arguments2(int argc, char *argv[], EmuEnv* _env);
 
@@ -105,10 +105,14 @@ int runExperiments(EmuEnv* _env) {
       //DestroyDB(kDBPath, options);
       Status destroy_status = DestroyDB(_env->path, options);
       if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
+      destroy_status = DestroyDB(_env->path + "-monkey", options);
+      if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
+      destroy_status = DestroyDB(_env->path + "-monkey-plus", options);
+      if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
+      destroy_status = DestroyDB(_env->path + "-optimal", options);
+      if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
     }
-    DestroyDB(_env->path + "-monkey", options);
-    DestroyDB(_env->path + "-monkey-plus", options);
-    DestroyDB(_env->path + "-optimal", options);
+    
     Options options2 (options);
     options2.create_if_missing = true;
     options2.disable_auto_compactions = true;
@@ -116,14 +120,18 @@ int runExperiments(EmuEnv* _env) {
     Status s = DB::Open(options, _env->path, &db);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     assert(s.ok());
-    s = DB::Open(options2, _env->path + "-monkey", &db_monkey);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    s = DB::Open(options2, _env->path + "-monkey-plus", &db_monkey_plus);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    assert(s.ok());
-    s = DB::Open(options2, _env->path + "-optimal", &db_optimal);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    assert(s.ok());
+
+    if (!only_collect_stats) {
+      s = DB::Open(options2, _env->path + "-monkey", &db_monkey);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      s = DB::Open(options2, _env->path + "-monkey-plus", &db_monkey_plus);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      assert(s.ok());
+      s = DB::Open(options2, _env->path + "-optimal", &db_optimal);
+      if (!s.ok()) std::cerr << s.ToString() << std::endl;
+      assert(s.ok());
+    }
+    
     
     // Prepare Perf and I/O stats
     QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
@@ -182,7 +190,12 @@ int runExperiments(EmuEnv* _env) {
     }
     get_perf_context()->ClearPerLevelPerfContext();
     ReopenDB(db, options, flush_options);
-    
+    if (only_collect_stats) {
+      std::cout << "End of experiment run: " << i+1 << std::endl;
+      std::cout << std::endl;
+      CloseDB(db, flush_options);
+      continue;
+    }
     
     //std::cout << " Total number of SST files: " << db_stats.num_files << std::endl;
     //std::cout << " Total number of entries (including point tombstones): " << db_stats.num_entries << std::endl;
@@ -370,6 +383,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
 
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
+  args::Flag only_collect_stats_cmd(group4, "only_collect_stats", "only collect the stats of queries without benchmarking bpk re-allocation", {"olcs", "only-collect-stats"});
 
   try {
       parser.ParseCLI(argc, argv);
@@ -420,6 +434,8 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->print_sst_stat = print_sst_stat_cmd ? true : false;
   _env->dump_query_stats = dump_query_stats_cmd ? true : false;
   _env->dump_query_stats_filename = query_stats_path_cmd ? args::get(query_stats_path_cmd) : query_statsPath;
+
+  only_collect_stats = only_collect_stats_cmd ? args::get(only_collect_stats_cmd) : false;
   return 0;
 }
 

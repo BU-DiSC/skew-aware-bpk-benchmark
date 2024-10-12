@@ -136,7 +136,7 @@ double getCurrentAverageBitsPerKey(DB* db, const Options *op) {
   return (double) agg_BF_size*8.0/agg_num_entries_in_BF;
 }
 
-void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_t start_global_point_read_number, double learning_rate) {
+void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_t start_global_point_read_number, double learning_rate, bool estimate_flag) {
   auto cfd = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())->cfd();
   const auto* vstorage = cfd->current()->storage_info();
   
@@ -146,14 +146,14 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_
   bool fst_meet_entries = false;
   stats->level2entries = std::vector<uint64_t> (cfd->NumberLevels(), 0);
   for (int i = 0; i < cfd->NumberLevels(); i++) {
+    stats->num_levels++;
+    stats->leveled_fileID2queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
+    stats->leveled_fileID2empty_queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
     if (vstorage->LevelFiles(i).empty()){
       if(!fst_meet_entries) stats->fst_level_with_entries++;
       continue;
     }
     fst_meet_entries = true;
-    stats->num_levels++;
-    stats->leveled_fileID2queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
-    stats->leveled_fileID2empty_queries.emplace_back(i, std::unordered_map<uint64_t, uint64_t>());
     //if (i == 0) continue;
     
     std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
@@ -171,9 +171,14 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_
 	min_num_point_reads = round(level_file->stats.start_global_point_read_number*vstorage->GetAvgNumPointReadsPerLvl0File());
       }
       stats->num_entries += level_file->num_entries - level_file->num_range_deletions;
-      std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1, min_num_point_reads);
-      num_point_reads = result.first;
-      num_existing_point_reads = result.second;
+      if (estimate_flag) {
+         std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1, min_num_point_reads);
+         num_point_reads = result.first;
+         num_existing_point_reads = result.second;
+      } else {
+         num_point_reads = level_file->stats.GetNumPointReads();
+         num_existing_point_reads = level_file->stats.GetNumExistingPointReads();
+      }
       uint64_t filenumber = level_file->fd.GetNumber();
       if ( print_point_read_stats ){
         std::string filename = MakeTableFileName(filenumber);
@@ -1421,8 +1426,12 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
 	op->point_reads_track_method = _env->point_reads_track_method;
         DbStats stats_to_be_evaluated;
         DbStats stats_ground_truth;
-        collectDbStats(_db, &stats_to_be_evaluated, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, _env->poiont_read_learning_rate);
-        collectDbStats(ground_truth_db, &stats_ground_truth);
+	if (op->point_reads_track_method == rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack) {
+          collectDbStats(_db, &stats_to_be_evaluated, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, _env->poiont_read_learning_rate, true);
+	} else {
+          collectDbStats(_db, &stats_to_be_evaluated, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, _env->poiont_read_learning_rate, false);
+	}
+        collectDbStats(ground_truth_db, &stats_ground_truth, false, query_track->point_lookups_completed + query_track->zero_point_lookups_completed, 0, false);
 	if (stats_ground_truth.num_entries == 0) {
 		stats_ground_truth.num_entries = stats_to_be_evaluated.num_entries;
 	}
@@ -1432,32 +1441,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
                                 ComputePointQueriesStatisticsByCosineSimilarity(stats_to_be_evaluated, stats_ground_truth),
                                 ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 1),
 				ComputePointQueriesStatisticsByLevelwiseDistanceType(stats_to_be_evaluated, stats_ground_truth, 2)));
-	if (point_reads_statistics_distance_collector->back().euclidean_distance.second > 1000000) {
-		double xxx = 0;
-		for(auto iter = stats_ground_truth.leveled_fileID2empty_queries[0].second.begin();
-				iter != stats_ground_truth.leveled_fileID2empty_queries[0].second.end(); iter++) {
-		  std::cout << iter->first << "\t" << iter->second << "\t";
-		  if (stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.find(iter->first) !=
-				  stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.end()) {
-			  std::cout << stats_to_be_evaluated.leveled_fileID2empty_queries[0].second[iter->first];
-			  xxx += std::pow(stats_to_be_evaluated.leveled_fileID2empty_queries[0].second[iter->first] - iter->second, 2.0);
-		  } else {
-			  std::cout << "Not Found" << std::endl;
-			  xxx += std::pow(iter->second, 2.0);
-		  }
-		  std::cout << std::endl;
-		}
-                for(auto iter = stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.begin();
-				iter != stats_to_be_evaluated.leveled_fileID2empty_queries[0].second.end(); iter++) {
-		  if (stats_ground_truth.leveled_fileID2empty_queries[0].second.find(iter->first) ==
-				  stats_ground_truth.leveled_fileID2empty_queries[0].second.end()) {
-		          std::cout << iter->first << "\t" << iter->second << "\t" << std::endl;
-			  xxx += std::pow(iter->second, 2.0);
-		  } 
-		}
-		counter++;
-		counter--;
-	}
+	
         eval_point_read_statistics_accuracy_count = ingestion_num/_env->eval_point_read_statistics_accuracy_interval;
       }
     }
