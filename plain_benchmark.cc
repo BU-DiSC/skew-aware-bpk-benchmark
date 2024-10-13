@@ -122,10 +122,10 @@ int runExperiments(EmuEnv* _env) {
       if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
     }
     Status s;
-    // Prepare Perf and I/O stats
+    // Prepare Perf and I/O stats   
     QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    
+   
     QueryTracker *query_track = new QueryTracker();
      
     s = DB::Open(options, _env->path, &db);
@@ -298,8 +298,8 @@ int runExperiments(EmuEnv* _env) {
       std::cout << state << std::endl;
     }
     bloom_false_positives = workloadaware_query_track->bloom_sst_hit_count - workloadaware_query_track->bloom_sst_true_positive_count;
-    std::cout << "accessed data blocks: " << workloadaware_query_track->data_block_read_count << std::endl;
-    std::cout << "read bytes: " << workloadaware_query_track->bytes_read << std::endl;
+    std::cout << "accessed data blocks (workloadaware): " << workloadaware_query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes (workloadaware): " << workloadaware_query_track->bytes_read << std::endl;
     std::cout << "used data blocks (workloadaware): " << workloadaware_query_track->data_block_read_count << std::endl;
     std::cout << "overall false positives (workloadaware): " << bloom_false_positives << std::endl;
     std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (workloadaware): " << 
@@ -312,7 +312,7 @@ int runExperiments(EmuEnv* _env) {
       std::cout << std::fixed << std::setprecision(6) << "avg operation latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->workload_exec_time)/workloadaware_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
     if (workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "ingestion latency: " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
       workloadaware_query_track->updates_cost + workloadaware_query_track->point_deletes_cost)/(workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
     }
     std::cout << "num skipped times :" << get_perf_context()->num_skipped_times << std::endl;

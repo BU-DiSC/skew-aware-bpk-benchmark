@@ -170,6 +170,10 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats, uint64_
       stats->level2entries[i] += level_file->num_entries - level_file->num_range_deletions; 
       stats->num_entries += level_file->num_entries - level_file->num_range_deletions;
       if (estimate_flag) {
+	 uint64_t min_num_point_reads = 0;
+	 if (i == 0) {
+	    min_num_point_reads = floor(level_file->stats.start_global_point_read_number * vstorage->GetAvgNumPointReadsPerLvl0File());
+	 }
          std::pair<uint64_t, uint64_t> result = level_file->stats.GetEstimatedNumPointReads(start_global_point_read_number, learning_rate, -1, min_num_point_reads);
          num_point_reads = result.first;
          num_existing_point_reads = result.second;

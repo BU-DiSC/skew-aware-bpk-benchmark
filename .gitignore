@@ -5,6 +5,7 @@ plain_benchmark_debug
 query_statistics_est_benchmark
 query_statistics_est_benchmark_debug
 query_statistics_est_benchmark_result/
+plain-output-bpk-slower-device/
 *.txt
 db_working_home*
 .vscode/
