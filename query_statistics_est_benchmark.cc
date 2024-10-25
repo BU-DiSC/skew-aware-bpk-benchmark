@@ -58,6 +58,8 @@ int main(int argc, char *argv[]) {
   runExperiments(_env, &point_reads_statistics_distance_dynamic_compaction_aware_track_collector); 
   writePointReadStatsDiff({&point_reads_statistics_distance_naiive_track_collector,
     &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"naiive","dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
+  //writePointReadStatsDiff({
+  //  &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
   return 0;
 }
 
@@ -116,8 +118,8 @@ int runExperiments(EmuEnv* _env, std::vector<SimilarityResult >* point_reads_sta
   assert(_env->experiment_runs >= 1);
   std::vector<SimilarityResult > temp_point_reads_statistics_distance_collector;
   std::string copy_db_cmd = "mkdir -p " +  _env->path + "-to-be-eval && rm " + _env->path + "-to-be-eval/* && cp " + _env->path + "/* " + _env->path + "-to-be-eval/";
-  system(copy_db_cmd.c_str());
   for (int i = 0; i < _env->experiment_runs; ++i) {
+    system(copy_db_cmd.c_str());
     // Reopen DB
     Status s;
     s = DB::Open(options, _env->path + "-to-be-eval", &db);

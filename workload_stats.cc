@@ -8,6 +8,7 @@ std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStat
   double stats1_num_empty_point_queries_vector_length = 0;
   double stats2_num_point_queries_vector_length = 0;
   double stats2_num_empty_point_queries_vector_length = 0;
+
   for(auto iter = stats1.fileID2queries.begin(); iter != stats1.fileID2queries.end(); iter++) {
     if (stats2.fileID2queries.find(iter->first) != stats2.fileID2queries.end()) {
       agg_num_point_queries_distance += iter->second*stats2.fileID2queries[iter->first];
@@ -42,7 +43,7 @@ std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStat
     num_point_queries_cosine_similarity = agg_num_point_queries_distance*1.0/stats1_num_point_queries_vector_length/stats2_num_point_queries_vector_length;
   }
   if (stats1_num_empty_point_queries_vector_length != 0 && stats2_num_empty_point_queries_vector_length != 0){
-    num_empty_point_queries_cosine_similarity = agg_num_empty_point_queries_distance*1.0/stats1_num_empty_point_queries_vector_length/stats2_num_empty_point_queries_vector_length;
+    num_empty_point_queries_cosine_similarity = agg_num_empty_point_queries_distance*1.0/stats1_num_empty_point_queries_vector_length/stats2_num_empty_point_queries_vector_length; 
   }
   return std::make_pair(num_point_queries_cosine_similarity, num_empty_point_queries_cosine_similarity);
 }
@@ -89,10 +90,11 @@ std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseD
 std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbStats& stats1, DbStats& stats2) {
   double agg_num_point_queries_distance = 0.0;
   double agg_num_empty_point_queries_distance = 0.0;
-
+  //std::vector<std::tuple<uint64_t, uint64_t, uint64_t> > xx;
   for(auto iter = stats1.fileID2queries.begin(); iter != stats1.fileID2queries.end(); iter++) {
     if (stats2.fileID2queries.find(iter->first) != stats2.fileID2queries.end()) {
       uint64_t temp_num_point_queries = stats2.fileID2queries[iter->first];
+      //xx.emplace_back(iter->first, iter->second, stats2.fileID2empty_queries[iter->first]);
       if (iter->second != temp_num_point_queries) {
         agg_num_point_queries_distance += std::pow((double)iter->second - (double)temp_num_point_queries, 2);
       }
@@ -100,6 +102,7 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
       agg_num_point_queries_distance += std::pow(iter->second, 2);
     }
   }
+  
 
   for(auto iter = stats1.fileID2empty_queries.begin(); iter != stats1.fileID2empty_queries.end(); iter++) {
     if (stats2.fileID2empty_queries.find(iter->first) != stats2.fileID2empty_queries.end()) {
@@ -126,7 +129,15 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
 
   agg_num_point_queries_distance = std::pow(agg_num_point_queries_distance, 0.5);
   agg_num_empty_point_queries_distance = std::pow(agg_num_empty_point_queries_distance, 0.5);
-
+  /* 
+  if (agg_num_empty_point_queries_distance > 1000000) {
+	   for (auto x:xx) {
+		   if (std::abs((double)std::get<1>(x) - (double)std::get<2>(x)) > 100000) {
+		       std::cout << std::get<0>(x) << "\t" << std::get<1>(x) << "\t" << std::get<2>(x) << "\t" << std::abs((double)std::get<1>(x) - (double)std::get<2>(x)) << std::endl;
+		   }
+	   }
+	   std::cout << std::endl;
+    }*/
   return std::make_pair(agg_num_point_queries_distance, agg_num_empty_point_queries_distance);
 }
 

@@ -125,7 +125,7 @@ int runExperiments(EmuEnv* _env) {
     // Prepare Perf and I/O stats   
     QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-   
+ 
     QueryTracker *query_track = new QueryTracker();
      
     s = DB::Open(options, _env->path, &db);
@@ -208,6 +208,8 @@ int runExperiments(EmuEnv* _env) {
     ingestion_query_track = new QueryTracker();
     runWorkload(db_monkey_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
     s = ReopenDB(db_monkey_plus, options, flush_options);
+    std::string copy_cmd = "cp -r " + _env->path + "-monkey-plus " + _env->path + "-workloadaware";
+    system(copy_cmd.c_str());
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
@@ -242,7 +244,7 @@ int runExperiments(EmuEnv* _env) {
       monkey_plus_query_track->zero_point_lookups_cost)/(monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
     if (monkey_plus_query_track->inserts_completed + monkey_plus_query_track->updates_completed + monkey_plus_query_track->point_deletes_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "ingestion latency: " <<  static_cast<double>(monkey_plus_query_track->inserts_cost +
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (monkey_plus): " <<  static_cast<double>(monkey_plus_query_track->inserts_cost +
       monkey_plus_query_track->updates_cost + monkey_plus_query_track->point_deletes_cost)/(monkey_plus_query_track->inserts_completed + monkey_plus_query_track->updates_completed + monkey_plus_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
     }
     if (monkey_plus_query_track->total_completed > 0) {
@@ -275,10 +277,10 @@ int runExperiments(EmuEnv* _env) {
     options.track_point_read_number_window_size = 16;
     s = DB::Open(options, _env->path + "-workloadaware", &db_workloadaware);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
-    ingestion_query_track = new QueryTracker();
-    runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    s = ReopenDB(db_workloadaware, options, flush_options);
-    if (!s.ok()) std::cerr << s.ToString() << std::endl;
+    //ingestion_query_track = new QueryTracker();
+    //runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
+    //s = ReopenDB(db_workloadaware, options, flush_options);
+    //if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
     get_perf_context()->ClearPerLevelPerfContext();

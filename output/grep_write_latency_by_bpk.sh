@@ -3,7 +3,7 @@ ZD=$1
 Z=$2
 str="Z${Z}_ZD${ZD}_bpk"
 
-NDEV="5.0"
+NDEV="3.0"
 str="Z${Z}_ZD${ZD}_bpk"
 if [ "${ZD}" == "1" ]; then
 	str="Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk"
