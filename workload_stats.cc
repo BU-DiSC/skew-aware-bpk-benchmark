@@ -1,5 +1,4 @@
 #include "workload_stats.h"
-
 std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStats& stats1, DbStats& stats2) {
   double agg_num_point_queries_distance = 0.0;
   double agg_num_empty_point_queries_distance = 0.0;
@@ -77,7 +76,8 @@ std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseD
       temp_stats1.fileID2empty_queries = std::unordered_map<uint64_t, uint64_t>();
       j2++;
     }
-    
+
+   
     if (distance_type == 1) {
       result.push_back(ComputePointQueriesStatisticsByEuclideanDistance(temp_stats1, temp_stats2));
     } else {
@@ -129,15 +129,6 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
 
   agg_num_point_queries_distance = std::pow(agg_num_point_queries_distance, 0.5);
   agg_num_empty_point_queries_distance = std::pow(agg_num_empty_point_queries_distance, 0.5);
-  /* 
-  if (agg_num_empty_point_queries_distance > 1000000) {
-	   for (auto x:xx) {
-		   if (std::abs((double)std::get<1>(x) - (double)std::get<2>(x)) > 100000) {
-		       std::cout << std::get<0>(x) << "\t" << std::get<1>(x) << "\t" << std::get<2>(x) << "\t" << std::abs((double)std::get<1>(x) - (double)std::get<2>(x)) << std::endl;
-		   }
-	   }
-	   std::cout << std::endl;
-    }*/
   return std::make_pair(agg_num_point_queries_distance, agg_num_empty_point_queries_distance);
 }
 
