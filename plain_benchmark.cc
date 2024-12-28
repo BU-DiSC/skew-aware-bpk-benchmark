@@ -33,15 +33,15 @@ std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
 QueryTracker global_query_tracker;
 QueryTracker global_monkey_query_tracker;
-QueryTracker global_monkey_plus_query_tracker;
-QueryTracker global_workloadaware_query_tracker;
+QueryTracker global_mnemosyne_query_tracker;
+QueryTracker global_mnemosyne_plus_query_tracker;
 
 
 
 DB* db = nullptr;
 DB* db_monkey = nullptr;
-DB* db_monkey_plus = nullptr;
-DB* db_workloadaware = nullptr;
+DB* db_mnemosyne = nullptr;
+DB* db_mnemosyne_plus = nullptr;
 
 
 int runExperiments(EmuEnv* _env);    // API
@@ -73,9 +73,9 @@ int main(int argc, char *argv[]) {
   // show average results for the number of experiment runs
   printEmulationOutput(_env, &global_query_tracker, _env->experiment_runs);
   std::cout << "==========================================================" << std::endl;
-  printEmulationOutput(_env, &global_monkey_plus_query_tracker, _env->experiment_runs);
+  printEmulationOutput(_env, &global_mnemosyne_query_tracker, _env->experiment_runs);
   std::cout << "==========================================================" << std::endl;
-  printEmulationOutput(_env, &global_workloadaware_query_tracker, _env->experiment_runs);
+  printEmulationOutput(_env, &global_mnemosyne_plus_query_tracker, _env->experiment_runs);
   
   std::cout << "===== Average stats of " << _env->experiment_runs << " runs ====="  << std::endl;
 
@@ -115,9 +115,9 @@ int runExperiments(EmuEnv* _env) {
     if (_env->destroy) {
       Status destroy_status = DestroyDB(_env->path, options);
       if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
-      destroy_status = DestroyDB(_env->path + "-monkey-plus", options);
+      destroy_status = DestroyDB(_env->path + "-mnemosyne", options);
       if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
-      destroy_status = DestroyDB(_env->path + "-workloadaware", options);
+      destroy_status = DestroyDB(_env->path + "-mnemosyne-plus", options);
       if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
     }
     Status s;
@@ -125,7 +125,7 @@ int runExperiments(EmuEnv* _env) {
     QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
  
-   
+    
     QueryTracker *query_track = new QueryTracker();
      
     s = DB::Open(options, _env->path, &db);
@@ -161,6 +161,14 @@ int runExperiments(EmuEnv* _env) {
       db->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
       std::cout << state << std::endl;
     }
+
+    std::vector<std::string> live_files;
+    uint64_t manifest_filesize;
+    db->GetLiveFiles(live_files, &manifest_filesize);
+    uint32_t num_live_files = live_files.size();
+
+    // see our paper for how we obtain this estimation and we maintain approximately 15 64-byte meta infor for each VersionStorageInfo instance
+    int estimated_extra_memory_for_mnemosyne = num_live_files * (64 * (64 + 4)/8) + (64 * 15);
   
     dumpStats(&global_query_tracker, query_track);    // dump stat of each run into acmulative stat
     bloom_false_positives = query_track->bloom_sst_hit_count - query_track->bloom_sst_true_positive_count;
@@ -185,149 +193,150 @@ int runExperiments(EmuEnv* _env) {
     ingestion_query_track = NULL;
     ReopenDB(db, options, flush_options);
     get_perf_context()->ClearPerLevelPerfContext();
-    CloseDB(db, flush_options);
-     
+    CloseDB(db, flush_options); 
+   
 
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
       table_options.block_cache.reset();
+      //table_options.block_cache = NewLRUCache(std::max(_env->block_cache_capacity*1024, estimated_extra_memory_for_mnemosyne) - estimated_extra_memory_for_mnemosyne, -1, false, _env->block_cache_high_priority_ratio);
       table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
       ;// invoke manual block_cache
     }
 
     options.create_if_missing = true;
-    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kDynamicMonkeyBpkAlloc;
+    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosyneBpkAlloc;
     table_options.modular_filters = true;
-    table_options.max_bits_per_key_granularity = 7.0;
-    table_options.max_modulars = 4;
+    table_options.max_bits_per_key_granularity = _env->bits_per_key;
+    table_options.max_modulars = 6;
     table_options.no_filter_optimize_for_level0 = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    s = DB::Open(options, _env->path + "-monkey-plus", &db_monkey_plus);
+    s = DB::Open(options, _env->path + "-mnemosyne", &db_mnemosyne);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     ingestion_query_track = new QueryTracker();
-    runWorkload(db_monkey_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    s = ReopenDB(db_monkey_plus, options, flush_options);
-    std::string copy_cmd = "mkdir -p " + _env->path + "-workloadaware/ && cp " + _env->path + "-monkey-plus/* " + _env->path + "-workloadaware/";
+    runWorkload(db_mnemosyne, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
+    s = ReopenDB(db_mnemosyne, options, flush_options);
+    std::string copy_cmd = "mkdir -p " + _env->path + "-mnemosyne-plus/ && cp " + _env->path + "-mnemosyne/* " + _env->path + "-mnemosyne-plus/";
     system(copy_cmd.c_str());
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
     get_perf_context()->EnablePerLevelPerfContext();
-    QueryTracker *monkey_plus_query_track = new QueryTracker();
-    db_monkey_plus->GetOptions().statistics->Reset();
-    db_monkey_plus->GetOptions().statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    QueryTracker *mnemosyne_query_track = new QueryTracker();
+    db_mnemosyne->GetOptions().statistics->Reset();
+    db_mnemosyne->GetOptions().statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     // TraceOptions trace_opt;
     // db_monkey->StartIOTrace(trace_opt, std::move(trace_writer));
-    runWorkload(db_monkey_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, monkey_plus_query_track);
+    runWorkload(db_mnemosyne, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, mnemosyne_query_track);
     // db_monkey->EndIOTrace();
     SetPerfLevel(kDisable);
     std::cout << "bytes read: " << get_iostats_context()->bytes_read << std::endl;
-    populateQueryTracker(monkey_plus_query_track, db_monkey_plus, table_options, _env);
-    dumpStats(&global_monkey_plus_query_tracker, monkey_plus_query_track); 
+    populateQueryTracker(mnemosyne_query_track, db_mnemosyne, table_options, _env);
+    dumpStats(&global_mnemosyne_query_tracker, mnemosyne_query_track); 
     if (_env->verbosity > 1) {
       std::string state;
-      db_monkey_plus->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      db_mnemosyne->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
       std::cout << state << std::endl;
     }
-    std::cout << "monkey-plus sst hit : " << monkey_plus_query_track->bloom_sst_miss_count << "\t monkey-plus tp : " << monkey_plus_query_track->bloom_sst_true_positive_count << std::endl;
-    bloom_false_positives = monkey_plus_query_track->bloom_sst_hit_count - monkey_plus_query_track->bloom_sst_true_positive_count;
-    std::cout << "used data blocks (monkey_plus): " << monkey_plus_query_track->data_block_read_count << std::endl;
-    std::cout << "accessed data blocks (monkey_plus): " << monkey_plus_query_track->data_block_read_count << std::endl;
-    std::cout << "read bytes (monkey_plus): " << monkey_plus_query_track->bytes_read << std::endl;
-    std::cout << "overall false positives (monkey_plus): " << bloom_false_positives << std::endl;
-    std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (monkey_plus): " << 
-      bloom_false_positives*100.0/(bloom_false_positives + monkey_plus_query_track->bloom_sst_miss_count) << "%" << std::endl;
-    if (monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "point query latency (monkey_plus): " <<  static_cast<double>(monkey_plus_query_track->point_lookups_cost +
-      monkey_plus_query_track->zero_point_lookups_cost)/(monkey_plus_query_track->point_lookups_completed + monkey_plus_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    std::cout << "mnemosyne sst hit : " << mnemosyne_query_track->bloom_sst_miss_count << "\t mnemosyne tp : " << mnemosyne_query_track->bloom_sst_true_positive_count << std::endl;
+    bloom_false_positives = mnemosyne_query_track->bloom_sst_hit_count - mnemosyne_query_track->bloom_sst_true_positive_count;
+    std::cout << "used data blocks (mnemosyne): " << mnemosyne_query_track->data_block_read_count << std::endl;
+    std::cout << "accessed data blocks (mnemosyne): " << mnemosyne_query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes (mnemosyne): " << mnemosyne_query_track->bytes_read << std::endl;
+    std::cout << "overall false positives (mnemosyne): " << bloom_false_positives << std::endl;
+    std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (mnemosyne): " << 
+      bloom_false_positives*100.0/(bloom_false_positives + mnemosyne_query_track->bloom_sst_miss_count) << "%" << std::endl;
+    if (mnemosyne_query_track->point_lookups_completed + mnemosyne_query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency (mnemosyne): " <<  static_cast<double>(mnemosyne_query_track->point_lookups_cost +
+      mnemosyne_query_track->zero_point_lookups_cost)/(mnemosyne_query_track->point_lookups_completed + mnemosyne_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
-    if (monkey_plus_query_track->inserts_completed + monkey_plus_query_track->updates_completed + monkey_plus_query_track->point_deletes_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (monkey_plus): " <<  static_cast<double>(monkey_plus_query_track->inserts_cost +
-      monkey_plus_query_track->updates_cost + monkey_plus_query_track->point_deletes_cost)/(monkey_plus_query_track->inserts_completed + monkey_plus_query_track->updates_completed + monkey_plus_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+    if (mnemosyne_query_track->inserts_completed + mnemosyne_query_track->updates_completed + mnemosyne_query_track->point_deletes_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (mnemosyne): " <<  static_cast<double>(mnemosyne_query_track->inserts_cost +
+      mnemosyne_query_track->updates_cost + mnemosyne_query_track->point_deletes_cost)/(mnemosyne_query_track->inserts_completed + mnemosyne_query_track->updates_completed + mnemosyne_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
     }
-    if (monkey_plus_query_track->total_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "avg operation latency (monkey_plus): " <<  static_cast<double>(monkey_plus_query_track->workload_exec_time)/monkey_plus_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
+    if (mnemosyne_query_track->total_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "avg operation latency (mnemosyne): " <<  static_cast<double>(mnemosyne_query_track->workload_exec_time)/mnemosyne_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
-    printBFBitsPerKey(db_monkey_plus);
-    // if (db_monkey_plus->GetOptions().statistics) {
-    //   std::cout << db_monkey_plus->GetOptions().statistics->getHistogramString(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES) << std::endl;
+    printBFBitsPerKey(db_mnemosyne);
+    // if (db_mnemosyne->GetOptions().statistics) {
+    //   std::cout << db_mnemosyne->GetOptions().statistics->getHistogramString(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES) << std::endl;
     // }
-    delete monkey_plus_query_track;
+    delete mnemosyne_query_track;
     delete ingestion_query_track;
     ingestion_query_track = NULL;
-    CloseDB(db_monkey_plus, flush_options);
+    CloseDB(db_mnemosyne, flush_options);
 
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
       table_options.block_cache.reset();
-      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      table_options.block_cache = NewLRUCache(std::max(_env->block_cache_capacity*1024, estimated_extra_memory_for_mnemosyne) - estimated_extra_memory_for_mnemosyne, -1, false, _env->block_cache_high_priority_ratio);
       ;// invoke manual block_cache
     }
 
-    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
+    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosynePlusBpkAlloc;
     table_options.modular_filters = true;
-    table_options.max_bits_per_key_granularity = 7.0;
-    table_options.max_modulars = 4;
+    table_options.max_bits_per_key_granularity = _env->bits_per_key;
+    table_options.max_modulars = 6;
     table_options.no_filter_optimize_for_level0 = false;
     options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.track_point_read_number_window_size = 16;
-    s = DB::Open(options, _env->path + "-workloadaware", &db_workloadaware);
+    s = DB::Open(options, _env->path + "-mnemosyne-plus", &db_mnemosyne_plus);
     //if (!s.ok()) std::cerr << s.ToString() << std::endl;
     //ingestion_query_track = new QueryTracker();
-    // The db instance can be copied by the one generated by insert-only monkey-plus instance
-    //runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
-    //s = ReopenDB(db_workloadaware, options, flush_options);
+    // The db instance can be copied by the one generated by insert-only mnemosyne instance
+    //runWorkload(db_mnemosyne_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, ingestion_query_track);
+    //s = ReopenDB(db_mnemosyne_plus, options, flush_options);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
     get_iostats_context()->Reset();
     get_perf_context()->Reset();
     get_perf_context()->ClearPerLevelPerfContext();
     get_perf_context()->EnablePerLevelPerfContext();
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
-    QueryTracker *workloadaware_query_track = new QueryTracker();
-    db_workloadaware->GetOptions().statistics->Reset();
-    db_workloadaware->GetOptions().statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    runWorkload(db_workloadaware, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, workloadaware_query_track);
+    QueryTracker *mnemosyne_plus_query_track = new QueryTracker();
+    db_mnemosyne_plus->GetOptions().statistics->Reset();
+    db_mnemosyne_plus->GetOptions().statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    runWorkload(db_mnemosyne_plus, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, mnemosyne_plus_query_track);
     
     SetPerfLevel(kDisable);
-    populateQueryTracker(workloadaware_query_track, db_workloadaware, table_options, _env);
-    dumpStats(&global_workloadaware_query_tracker, workloadaware_query_track); 
+    populateQueryTracker(mnemosyne_plus_query_track, db_mnemosyne_plus, table_options, _env);
+    dumpStats(&global_mnemosyne_plus_query_tracker, mnemosyne_plus_query_track); 
     if (_env->verbosity > 1) {
       std::string state;
-      db_workloadaware->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
+      db_mnemosyne_plus->GetProperty("rocksdb.cfstats-no-file-histogram", &state);
       std::cout << state << std::endl;
     }
-    bloom_false_positives = workloadaware_query_track->bloom_sst_hit_count - workloadaware_query_track->bloom_sst_true_positive_count;
-    std::cout << "accessed data blocks (workloadaware): " << workloadaware_query_track->data_block_read_count << std::endl;
-    std::cout << "read bytes (workloadaware): " << workloadaware_query_track->bytes_read << std::endl;
-    std::cout << "used data blocks (workloadaware): " << workloadaware_query_track->data_block_read_count << std::endl;
-    std::cout << "overall false positives (workloadaware): " << bloom_false_positives << std::endl;
-    std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (workloadaware): " << 
-      bloom_false_positives*100.0/(bloom_false_positives + workloadaware_query_track->bloom_sst_miss_count) << "%" << std::endl;
-    if (workloadaware_query_track->point_lookups_completed + workloadaware_query_track->zero_point_lookups_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "point query latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->point_lookups_cost +
-      workloadaware_query_track->zero_point_lookups_cost)/(workloadaware_query_track->point_lookups_completed + workloadaware_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
+    bloom_false_positives = mnemosyne_plus_query_track->bloom_sst_hit_count - mnemosyne_plus_query_track->bloom_sst_true_positive_count;
+    std::cout << "accessed data blocks (mnemosyne-plus): " << mnemosyne_plus_query_track->data_block_read_count << std::endl;
+    std::cout << "read bytes (mnemosyne-plus): " << mnemosyne_plus_query_track->bytes_read << std::endl;
+    std::cout << "used data blocks (mnemosyne-plus): " << mnemosyne_plus_query_track->data_block_read_count << std::endl;
+    std::cout << "overall false positives (mnemosyne-plus): " << bloom_false_positives << std::endl;
+    std::cout << std::fixed << std::setprecision(6) << "overall false positive rate (mnemosyne-plus): " << 
+      bloom_false_positives*100.0/(bloom_false_positives + mnemosyne_plus_query_track->bloom_sst_miss_count) << "%" << std::endl;
+    if (mnemosyne_plus_query_track->point_lookups_completed + mnemosyne_plus_query_track->zero_point_lookups_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "point query latency (mnemosyne-plus): " <<  static_cast<double>(mnemosyne_plus_query_track->point_lookups_cost +
+      mnemosyne_plus_query_track->zero_point_lookups_cost)/(mnemosyne_plus_query_track->point_lookups_completed + mnemosyne_plus_query_track->zero_point_lookups_completed)/1000000 << " (ms/query)" << std::endl;
     }
-    if (workloadaware_query_track->total_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "avg operation latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->workload_exec_time)/workloadaware_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
+    if (mnemosyne_plus_query_track->total_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "avg operation latency (mnemosyne-plus): " <<  static_cast<double>(mnemosyne_plus_query_track->workload_exec_time)/mnemosyne_plus_query_track->total_completed/1000000 << " (ms/ops)" << std::endl;
     }
-    if (workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed > 0) {
-      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (workloadaware): " <<  static_cast<double>(workloadaware_query_track->inserts_cost +
-      workloadaware_query_track->updates_cost + workloadaware_query_track->point_deletes_cost)/(workloadaware_query_track->inserts_completed + workloadaware_query_track->updates_completed + workloadaware_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
+    if (mnemosyne_plus_query_track->inserts_completed + mnemosyne_plus_query_track->updates_completed + mnemosyne_plus_query_track->point_deletes_completed > 0) {
+      std::cout << std::fixed << std::setprecision(6) << "ingestion latency (mnemosyne-plus): " <<  static_cast<double>(mnemosyne_plus_query_track->inserts_cost +
+      mnemosyne_plus_query_track->updates_cost + mnemosyne_plus_query_track->point_deletes_cost)/(mnemosyne_plus_query_track->inserts_completed + mnemosyne_plus_query_track->updates_completed + mnemosyne_plus_query_track->point_deletes_completed)/1000000 << " (ms/ops)" << std::endl;
     }
     std::cout << "num skipped times :" << get_perf_context()->num_skipped_times << std::endl;
-    s = BackgroundJobMayAllCompelte(db_workloadaware);
+    s = BackgroundJobMayAllCompelte(db_mnemosyne_plus);
     assert(s.ok());
-    printBFBitsPerKey(db_workloadaware);
-    // if (db_workloadaware->GetOptions().statistics) {
-    //   std::cout << db_workloadaware->GetOptions().statistics->getHistogramString(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES) << std::endl;
+    printBFBitsPerKey(db_mnemosyne_plus);
+    // if (db_mnemosyne_plus->GetOptions().statistics) {
+    //   std::cout << db_mnemosyne_plus->GetOptions().statistics->getHistogramString(TABLE_OPEN_PREFETCH_TAIL_READ_BYTES) << std::endl;
     // }
-    delete workloadaware_query_track;
+    delete mnemosyne_plus_query_track;
 
-    CloseDB(db_workloadaware, flush_options);
+    CloseDB(db_mnemosyne_plus, flush_options);
     std::cout << "End of experiment run: " << i+1 << std::endl;
     std::cout << std::endl;
 
@@ -364,6 +373,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
 
 
   args::Flag no_block_cache_cmd(group1, "block_cache", "Disable block cache", {"dis_blk_cache", "disable_block_cache"});
+  args::Flag ribbon_filter_cmd(group1, "ribbon_filter", "Enable Ribbon filter", {"rf", "ribbon_filter"});
   args::ValueFlag<int> block_cache_capacity_cmd(group1, "block_cache_capacity", "The capacity (kilobytes) of block cache [def: 8 MB]", {"BCC", "block_cache_capacity"});
   args::ValueFlag<double> block_cache_high_priority_ratio_cmd(group1, "block_cache_high_priority_ratio", "The ratio of capacity reserved for high priority blocks in block cache [def: 1.0 ]", {"BCHPR", "block_cache_high_priority_ratio"});
   args::ValueFlag<int> experiment_runs_cmd(group1, "experiment_runs", "The number of experiments repeated each time [def: 1]", {'R', "run"});
@@ -420,6 +430,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   _env->block_cache_capacity = block_cache_capacity_cmd ? args::get(block_cache_capacity_cmd) : 8*1024;
   _env->block_cache_high_priority_ratio = block_cache_high_priority_ratio_cmd ? args::get(block_cache_high_priority_ratio_cmd) : 0.5;
   _env->bits_per_key = bits_per_key_cmd ? args::get(bits_per_key_cmd) : 10;
+  _env->ribbon_filter = ribbon_filter_cmd ? true : false;
 
   _env->experiment_runs = experiment_runs_cmd ? args::get(experiment_runs_cmd) : 1;
 //  _env->num_inserts = num_inserts_cmd ? args::get(num_inserts_cmd) : 0;

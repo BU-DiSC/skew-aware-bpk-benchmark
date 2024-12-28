@@ -53,11 +53,11 @@ int main(int argc, char *argv[]) {
   std::vector<SimilarityResult> point_reads_statistics_distance_dynamic_compaction_aware_track_collector;
   _env->point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
   runExperiments(_env, &point_reads_statistics_distance_naiive_track_collector);
-  _env->bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
+  _env->bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosynePlusBpkAlloc;
   _env->point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
   runExperiments(_env, &point_reads_statistics_distance_dynamic_compaction_aware_track_collector); 
   writePointReadStatsDiff({&point_reads_statistics_distance_naiive_track_collector,
-    &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"naiive","dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
+   &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"naiive","dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
   //writePointReadStatsDiff({
   //  &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
   return 0;

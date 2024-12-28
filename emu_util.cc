@@ -130,9 +130,9 @@ double getCurrentAverageBitsPerKey(DB* db, const Options *op) {
   const auto* vstorage = cfd->current()->storage_info();
 
   uint64_t agg_BF_size = vstorage->GetCurrentTotalFilterSize();
-  if (agg_BF_size > vstorage->GetSkippedFilterSize()) {
-	  agg_BF_size -= vstorage->GetSkippedFilterSize();
-  }
+  //if (agg_BF_size > vstorage->GetSkippedFilterSize()) {
+  //agg_BF_size -= vstorage->GetSkippedFilterSize();
+  //}
   uint64_t agg_num_entries_in_BF = vstorage->GetCurrentTotalNumEntries();
   
   if (agg_num_entries_in_BF == 0) return 0.0;
@@ -1033,7 +1033,11 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
   if (_env->bits_per_key == 0) {
       ;// do nothing
   } else {
-    table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key, false));    // currently build full filter instead of blcok-based filter
+    if (_env->ribbon_filter) {
+      table_op->filter_policy.reset(NewRibbonFilterPolicy(_env->bits_per_key));
+    } else {
+      table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key, false));    // currently build full filter instead of blcok-based filter
+    }
   }
 
   table_op->cache_index_and_filter_blocks = _env->cache_index_and_filter_blocks;

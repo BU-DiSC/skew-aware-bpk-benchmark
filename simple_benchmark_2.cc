@@ -319,12 +319,10 @@ int runExperiments(EmuEnv* _env) {
       table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
       ;// invoke manual block_cache
     }
-    //table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kWorkloadAwareBpkAlloc;
-    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kDynamicMonkeyBpkAlloc;
+    table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosyneBpkAlloc;
     table_options.modular_filters = true;
     table_options.max_bits_per_key_granularity = _env->bits_per_key;
-    table_options.max_modulars = 5;
-    //options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
+    table_options.max_modulars = 6;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
     //options.track_point_read_number_window_size = 16;

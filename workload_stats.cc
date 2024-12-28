@@ -1,4 +1,5 @@
 #include "workload_stats.h"
+bool print_flag = false;
 std::pair<double, double> ComputePointQueriesStatisticsByCosineSimilarity(DbStats& stats1, DbStats& stats2) {
   double agg_num_point_queries_distance = 0.0;
   double agg_num_empty_point_queries_distance = 0.0;
@@ -55,7 +56,7 @@ std::vector<std::pair<double, double>> ComputePointQueriesStatisticsByLevelwiseD
   std::vector<std::pair<double, double>> result;
   size_t j1 = 0;
   size_t j2 = 0;
-  for(size_t i = 0; i < num_levels; i++) {
+  for(size_t i = 0; i < num_levels; i++) { 
     if (stats1.leveled_fileID2queries[j1].first == stats2.leveled_fileID2queries[j2].first) {
       temp_stats1.fileID2queries = stats1.leveled_fileID2queries[i].second;
       temp_stats2.fileID2queries = stats2.leveled_fileID2queries[i].second;
@@ -94,7 +95,6 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
   for(auto iter = stats1.fileID2queries.begin(); iter != stats1.fileID2queries.end(); iter++) {
     if (stats2.fileID2queries.find(iter->first) != stats2.fileID2queries.end()) {
       uint64_t temp_num_point_queries = stats2.fileID2queries[iter->first];
-      //xx.emplace_back(iter->first, iter->second, stats2.fileID2empty_queries[iter->first]);
       if (iter->second != temp_num_point_queries) {
         agg_num_point_queries_distance += std::pow((double)iter->second - (double)temp_num_point_queries, 2);
       }
@@ -107,6 +107,7 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
   for(auto iter = stats1.fileID2empty_queries.begin(); iter != stats1.fileID2empty_queries.end(); iter++) {
     if (stats2.fileID2empty_queries.find(iter->first) != stats2.fileID2empty_queries.end()) {
       uint64_t temp_num_empty_point_queries = stats2.fileID2empty_queries[iter->first];
+      //xx.emplace_back(iter->first, iter->second, stats2.fileID2empty_queries[iter->first]);
       if (iter->second != temp_num_empty_point_queries) {
         agg_num_empty_point_queries_distance += std::pow((double)iter->second - (double)temp_num_empty_point_queries, 2);
       }
@@ -128,7 +129,8 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
   }
 
   agg_num_point_queries_distance = std::pow(agg_num_point_queries_distance, 0.5);
-  agg_num_empty_point_queries_distance = std::pow(agg_num_empty_point_queries_distance, 0.5);
+  agg_num_empty_point_queries_distance = std::pow(agg_num_empty_point_queries_distance, 0.5); 
+ 
   return std::make_pair(agg_num_point_queries_distance, agg_num_empty_point_queries_distance);
 }
 
