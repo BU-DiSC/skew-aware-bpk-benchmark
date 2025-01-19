@@ -125,7 +125,7 @@ int runExperiments(EmuEnv* _env) {
     QueryTracker *ingestion_query_track = new QueryTracker();   // stats tracker for each run
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
  
-    
+   
     QueryTracker *query_track = new QueryTracker();
      
     s = DB::Open(options, _env->path, &db);
@@ -209,7 +209,7 @@ int runExperiments(EmuEnv* _env) {
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosyneBpkAlloc;
     table_options.modular_filters = true;
     table_options.max_bits_per_key_granularity = _env->bits_per_key;
-    table_options.max_modulars = 6;
+    table_options.max_modulars = 5;
     table_options.no_filter_optimize_for_level0 = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     s = DB::Open(options, _env->path + "-mnemosyne", &db_mnemosyne);
@@ -279,7 +279,7 @@ int runExperiments(EmuEnv* _env) {
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosynePlusBpkAlloc;
     table_options.modular_filters = true;
     table_options.max_bits_per_key_granularity = _env->bits_per_key;
-    table_options.max_modulars = 6;
+    table_options.max_modulars = 5;
     table_options.no_filter_optimize_for_level0 = false;
     options.point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));

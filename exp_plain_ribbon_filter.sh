@@ -14,12 +14,12 @@ BCC="524288"
 DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
 #DB_HOME="/mnt/ramd/zczhu/db_working_home"
 WORKLOAD_HOME="/scratchHDDa/zczhu/dynamic_bpk_emulation/workload_generator_scripts"
-Z_list=("0.0" "0.5" "1.0")
+Z_list=("1.0" "0.5" "0.0")
 ZD_list=("0" "1")
 #Z_list=("0.0")
 #ZD_list=("1")
 NDEV="3.0"
-OUTPUT_DIR="plain-output-bpk"
+OUTPUT_DIR="plain-output-bpk-ribbon-filter"
 mkdir -p "${OUTPUT_DIR}"
 #ulimit -n 65535
 for ZD in ${ZD_list[@]}
@@ -29,11 +29,11 @@ do
 		for bpk in ${bpk_list[@]}
 		do
 			if [ "${ZD}" == "1" ]; then
-				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt"
-				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt
+				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --rf > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt"
+				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --rf > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt
 			else
-				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
-				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --rf > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
+				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --rf > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
 			fi
 			rm ${DB_HOME}/*
 			rm ${DB_HOME}-mnemosyne/*

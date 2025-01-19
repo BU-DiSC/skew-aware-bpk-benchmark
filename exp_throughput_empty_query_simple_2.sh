@@ -31,7 +31,7 @@ do
 			mv throughputs.txt ${dir}/ZD${ZD}-NDEV${NDEV}-bpk-${bpk}_throughputs_mixed_empty_query_workload_exp.txt
 			mv tracked_avg_bpk.txt ${dir}/ZD${ZD}-NDEV${NDEV}-bpk-${bpk}_tracked_avg_bpk_empty_query_workload_exp.txt
 		else
-			echo "./simple_benchmark_2 -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ../workload_generator_scripts/ZD${ZD}_E${E}_mixed_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dw --dr --clct-tputi ${throughput_interval} > ${dir}/ZD${ZD}_bpk-${bpk}_output_mixed_empty_query_workload.txt"
+			echo "./simple_benchmark_2 -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ../workload_generator_scripts/ZD${ZD}_E${E}_mixed_empty_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dw --dr --clct-tputi ${throughput_interval} > ${dir}/ZD${ZD}_bpk-${bpk}_output_mixed_empty_query_workload.txt"
 			./simple_benchmark_2 -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ../workload_generator_scripts/ZD${ZD}_E${E}_mixed_empty_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dw --dr --clct-tputi ${throughput_interval} > ${dir}/ZD${ZD}_bpk-${bpk}_output_mixed_empty_query_workload.txt
 			mv throughputs.txt ${dir}/ZD${ZD}-bpk-${bpk}_throughputs_mixed_empty_query_workload_exp.txt
 			mv tracked_avg_bpk.txt ${dir}/ZD${ZD}-bpk-${bpk}_tracked_avg_bpk_empty_query_workload_exp.txt

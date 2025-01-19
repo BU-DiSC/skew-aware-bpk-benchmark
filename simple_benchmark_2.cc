@@ -119,7 +119,7 @@ int runExperiments(EmuEnv* _env) {
     configOptions(_env, &options, &table_options, &write_options, &read_options, &flush_options);
 
     // Reopen DB 
-    if (_env->destroy) {
+    if (_env->destroy || i > 0) {
       DestroyDB(_env->path, options);
       DestroyDB(_env->path + "-monkey-top-down", options);
       DestroyDB(_env->path + "-monkey-bottom-up", options);
@@ -128,10 +128,11 @@ int runExperiments(EmuEnv* _env) {
     Status s;
     // Prepare Perf and I/O stats
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    
     options.level_compaction_dynamic_level_bytes = _env->level_compaction_dynamic_level_bytes;
-    
+   
     QueryTracker *query_track = new QueryTracker();
-    
+   
     s = DB::Open(options, _env->path, &db);
     db->GetOptions().db_paths.emplace_back(_env->path, _env->file_size);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
@@ -185,7 +186,7 @@ int runExperiments(EmuEnv* _env) {
     delete query_track;
     get_perf_context()->ClearPerLevelPerfContext();
     CloseDB(db, flush_options);
-  
+
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
@@ -195,11 +196,13 @@ int runExperiments(EmuEnv* _env) {
     }
     options.create_if_missing = true;
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kNaiveMonkeyBpkAlloc;
+    table_options.modular_filters = false;
     std::vector<double> bpk_list (_env->num_levels, _env->bits_per_key);
     long space_amp = std::min((long)query_wd.update_num, (long)(query_wd.insert_num*(1.0 - 1.0/_env->size_ratio)));
     getNaiveMonkeyBitsPerKey(query_wd.insert_num + space_amp, floor(_env->buffer_size/_env->entry_size), _env->size_ratio, 
             _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list, true, false);
     table_options.naive_monkey_bpk_list = bpk_list;
+    table_options.modular_filters = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.level_compaction_dynamic_level_bytes = true;
     s = DB::Open(options, _env->path + "-monkey-bottom-up", &db_monkey_bottom_up);
@@ -209,6 +212,7 @@ int runExperiments(EmuEnv* _env) {
     SetPerfLevel(rocksdb::PerfLevel::kEnableTime);
     get_perf_context()->EnablePerLevelPerfContext();
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    
     QueryTracker *monkey_bottom_up_query_track = new QueryTracker();
     db_monkey_bottom_up->GetOptions().statistics->Reset();
     
@@ -248,7 +252,7 @@ int runExperiments(EmuEnv* _env) {
     }
     delete monkey_bottom_up_query_track;
     CloseDB(db_monkey_bottom_up, flush_options);
-  
+ 
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
@@ -311,7 +315,7 @@ int runExperiments(EmuEnv* _env) {
     }
     delete monkey_top_down_query_track;
     CloseDB(db_monkey_top_down, flush_options);
-    
+  
     if (_env->block_cache_capacity == 0) {
       ;// do nothing
     } else {
@@ -404,7 +408,7 @@ int runExperiments(EmuEnv* _env) {
      mnemosyne_throughput_and_bpk_collector[i].second /= _env->experiment_runs;
     }
     write_collected_throughput({throughput_and_bpk_collector, monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector, mnemosyne_throughput_and_bpk_collector}, {"uniform", "monkey-bottom-up", "monkey-top-down", "mnemosyne"}, throughputPath, bpkPath, _env->throughput_collect_interval);
-    //write_collected_throughput({throughput_and_bpk_collector, monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector}, {"uniform", "monkey-bottom-up", "monkey-top-down"}, throughputPath, bpkPath, _env->throughput_collect_interval);
+    //write_collected_throughput({monkey_bottom_up_throughput_and_bpk_collector, monkey_top_down_throughput_and_bpk_collector}, {"monkey-bottom-up", "monkey-top-down"}, throughputPath, bpkPath, _env->throughput_collect_interval);
     //write_collected_throughput({throughput_and_bpk_collector}, {"uniform"}, throughputPath, bpkPath, _env->throughput_collect_interval);
   }
   return 0;
