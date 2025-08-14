@@ -17,7 +17,7 @@ endif
 
 .PHONY: clean librocksdb
 
-all: bpk_benchmark plain_benchmark query_statistics_est_benchmark simple_benchmark
+all: bpk_benchmark query_lat_exp query_statistics_est_benchmark simple_benchmark
 
 query_statistics_est_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
@@ -33,18 +33,18 @@ simple_benchmark_debug: librocksdb_debug emu_environment.cc workload_stats.cc au
 	$(CXX) $(CXXFLAGS) -g simple_benchmark.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 
-simple_benchmark_2: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
+runtime_tput_exp: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
-simple_benchmark_2_debug: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
-	$(CXX) $(CXXFLAGS) -g simple_benchmark_2.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+runtime_tput_exp_debug: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
+	$(CXX) $(CXXFLAGS) -g runtime_tput_exp.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 
-plain_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
+query_lat_exp: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
-plain_benchmark_debug: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
-	$(CXX) $(CXXFLAGS) -g plain_benchmark.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
+query_lat_exp_debug: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
+	$(CXX) $(CXXFLAGS) -g query_lat_exp.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 
 bpk_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
@@ -54,7 +54,7 @@ bpk_benchmark_debug: librocksdb_debug emu_environment.cc workload_stats.cc aux_t
 	$(CXX) $(CXXFLAGS) bpk_benchmark.cc -o$@ emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -ggdb -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 clean:
-	rm -rf bpk_benchmark bpk_benchmark_debug plain_benchmark plain_benchmark_debug bpk_benchmark_debug.* query_statistics_est_benchmark query_statistics_est_benchmark_debug simple_benchmark_2 simple_benchmark_2_debug
+	rm -rf bpk_benchmark bpk_benchmark_debug query_lat_exp query_lat_exp_debug bpk_benchmark_debug.* query_statistics_est_benchmark query_statistics_est_benchmark_debug runtime_tput_exp runtime_tput_exp_debug
 
 librocksdb:
 	cd ${rocksdbpath} && $(MAKE) static_lib

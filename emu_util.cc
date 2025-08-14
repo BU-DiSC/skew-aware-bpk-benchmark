@@ -1,5 +1,6 @@
 #include "emu_util.h"
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <iomanip>
@@ -30,7 +31,7 @@ Status ReopenDB(DB *&db, const Options &op, const FlushOptions &flush_op) {
 	Status s = CloseDB(db, flush_op);
 	assert(s.ok());
 	Status return_status = DB::Open(op, dbPath, &db);
-	std::cout << return_status.ToString() << std::endl;
+	//std::cout << return_status.ToString() << std::endl;
 	assert(return_status.ok());
 	return return_status;
 }
@@ -221,11 +222,11 @@ Status createNewSstFile(const std::string filename_to_read, const std::string fi
 }
 
 Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats) {
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream & of) {
   
   std::vector<double> bpk_list (_env->num_levels, _env->bits_per_key);
     getNaiveMonkeyBitsPerKey(db_stats.num_entries, floor(_env->buffer_size/_env->entry_size), _env->size_ratio, 
-            _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list, _env->level_compaction_dynamic_level_bytes, true);
+            _env->level0_file_num_compaction_trigger, _env->bits_per_key, &bpk_list, _env->level_compaction_dynamic_level_bytes, true, of);
 
   // if (db_stats.num_levels <= 1) return Status::OK(); // do nothing when L <= 1
   // // plain monkey does not optimizes for level 0 because the size ratio is specified between MemTable and Level 1
@@ -322,7 +323,7 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
       }
       ingest_opts.picked_level = i;
       db_monkey->IngestExternalFile(filenames, ingest_opts);
-      std::cout << "level " << i << " bits_per_key : " << bits_per_key << " \t bits : " << bits_per_key*num_entries_by_level << " false positive rate : " << 100*exp(-log_2_squared*bits_per_key) << "%" << std::endl;
+      of << "level " << i << " bits_per_key : " << bits_per_key << " \t bits : " << bits_per_key*num_entries_by_level << " false positive rate : " << 100*exp(-log_2_squared*bits_per_key) << "%" << std::endl;
       used_memory += (uint64_t) bits_per_key*num_entries_by_level;
       level_counter++;
     }
@@ -330,8 +331,8 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
   table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
   op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
 
-  std::cout << "Objective Value : " << objective_value << std::endl;
-  std::cout << "Used memory: " << used_memory << std::endl;
+  of << "Objective Value : " << objective_value << std::endl;
+  of << "Used memory: " << used_memory << std::endl;
 
   std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
   system(delete_temp_dir_cmd.c_str());
@@ -339,10 +340,10 @@ Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey, Options *op
 }
 
 Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats) {
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream &of) {
   if (db_stats.num_levels <= 1) return Status::OK(); // do nothing when L <= 1
   uint64_t total_filter_memory = db_stats.num_entries * _env->bits_per_key;
-  std:: cout << "Total memory: " << total_filter_memory << std::endl;
+  of << "Total memory: " << total_filter_memory << std::endl;
   // solve min \sum p_i subject to \sum  - f_i * \ln p_i = N * bpk,
   // N is the number of total entries, apply Lagrange operator and we get f_i/p_i is a constant C
   // we try to solve C first. There could exist some levels which do not have filters (bpk = 0) in the optimal solution,
@@ -428,7 +429,7 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
             table_op->filter_policy.reset(NewBloomFilterPolicy(bits_per_key));
           }
           op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
-          std::cout << "Level 0: " << j << " file bpk: " << bits_per_key << std::endl;
+          of << "Level 0: " << j << " file bpk: " << bits_per_key << std::endl;
         }
         level_file = level_files[j];
         std::string filename = MakeTableFileName(level_file->fd.GetNumber());
@@ -439,19 +440,19 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
           }
         num_entries_by_level += level_file->num_entries - level_file->num_range_deletions;
         Status s = createNewSstFile(_env->path + "/" + filename, _env->path + "-temp/" + filename, op, env_op, read_op);
-        if (!s.ok()) std::cout << s.ToString() << std::endl;
+        if (!s.ok()) of << s.ToString() << std::endl;
         filenames.push_back(_env->path + "-temp/" + filename);
       }
       ingest_opts.picked_level = i;
       db_monkey_plus->IngestExternalFile(filenames, ingest_opts);
-      std::cout << "level " << i << " bits_per_key : " << bits_per_key << " \t bits : " << bits_per_key*num_entries_by_level << " false positive rate : " << 100*exp(-log_2_squared*bits_per_key) << "%" << std::endl;
+      of << "level " << i << " bits_per_key : " << bits_per_key << " \t bits : " << bits_per_key*num_entries_by_level << " false positive rate : " << 100*exp(-log_2_squared*bits_per_key) << "%" << std::endl;
       level_counter++;
     }
   
   table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
   op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
 
-  std::cout << "Objective Value : " << objective_value << std::endl;
+  of << "Objective Value : " << objective_value << std::endl;
 
   std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
   system(delete_temp_dir_cmd.c_str());
@@ -459,13 +460,13 @@ Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey_plus, Op
 }
 
 Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats) {
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream &of) {
   if (db_stats.num_levels <= 1) return Status::OK(); // do nothing when L <= 1
   uint64_t total_filter_memory = db_stats.num_entries * _env->bits_per_key;
   // solve \sum - ln p_i / (ln 2)^2 * n_i = M where n_i is the number of entries per file
   // plugged with Lagrange multiplier we have p_i * z_i / n_i should be a constant C where z_i is the number of non-existing
   // queries per file. Let C = p_i * z_i / n_i, we try to solve C first and then calculate p_i per file
-  std:: cout << "Total memory: " << total_filter_memory << std::endl;
+  of << "Total memory: " << total_filter_memory << std::endl;
   // let S = \sum (ln n_i / z_i) * n_i, we have - (\sum z_i) * C - S = M * (ln 2)^2
 
   // p_i refers to the false positive rate of the i-th file, empty_queries represent the number of empty queries
@@ -585,7 +586,7 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
       filenames.push_back(_env->path + "-temp/" + filename);
     }
     ingest_opts.picked_level = i;
-    std::cout << " Level " << i << " access frequencies : num_point_reads (" << point_reads_by_level << "), num_tp_reads (" << existing_point_reads_by_level << ")" << std::endl;
+    of << " Level " << i << " access frequencies : num_point_reads (" << point_reads_by_level << "), num_tp_reads (" << existing_point_reads_by_level << ")" << std::endl;
     db_optimal->IngestExternalFile(filenames, ingest_opts);
     level_counter++;
   }
@@ -593,17 +594,17 @@ Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal, Options *o
   table_op->filter_policy.reset(NewBloomFilterPolicy(_env->bits_per_key));
   op->table_factory.reset(NewBlockBasedTableFactory(*table_op));
 
-  std::cout << "Objective Value : " << objective_value << std::endl;
-  std::cout << "Total memory used : " << total_memory_used << std::endl;
-  std::cout << "Maximum bpk : " << max_bpk << std::endl;
-  std::cout << "Minimum bpk : " << min_bpk << std::endl;
+  of << "Objective Value : " << objective_value << std::endl;
+  of << "Total memory used : " << total_memory_used << std::endl;
+  of << "Maximum bpk : " << max_bpk << std::endl;
+  of << "Minimum bpk : " << min_bpk << std::endl;
 
   std::string delete_temp_dir_cmd = "rm -rf " + _env->path + "-temp/";
   system(delete_temp_dir_cmd.c_str());
   return Status::OK();
 }
 
-void printBFBitsPerKey(DB *db) {
+void printBFBitsPerKey(DB *db, ofstream &of) {
   DBImpl::GetImplOptions get_impl_options;
   get_impl_options.column_family = db->DefaultColumnFamily();
   auto cfh = reinterpret_cast<rocksdb::ColumnFamilyHandleImpl*>(get_impl_options.column_family);
@@ -618,7 +619,7 @@ void printBFBitsPerKey(DB *db) {
     }
     double total_bits = 0;
     double total_entries = 0;
-    std::cout << " Level " << i << " : "; 
+    of << " Level " << i << " : "; 
     std::vector<FileMetaData*> level_files = vstorage->LevelFiles(i);
     FileMetaData* level_file;
     for (uint32_t j = 0; j < level_files.size(); j++) {
@@ -626,20 +627,21 @@ void printBFBitsPerKey(DB *db) {
       uint64_t filenumber = level_file->fd.GetNumber();
       std::string filename = MakeTableFileName(filenumber);
       if (level_file->bpk != -1) {
-        std::cout << filename << "(" << level_file->bpk << ", " << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") ";
+        of << filename << "(" << level_file->bpk << ", " << level_file->stats.num_point_reads.load(std::memory_order_relaxed) << ", " << level_file->stats.num_existing_point_reads.load(std::memory_order_relaxed) << ") ";
 	total_bits += level_file->bpk*(level_file->num_entries - level_file->num_range_deletions);
 	total_entries += level_file->num_entries - level_file->num_range_deletions;
       }
       total_tail_size += level_file->tail_size;
     }
-    std::cout << std::endl;
-    std::cout << "Level " << i << " Avg BPK : " << total_bits*1.0/total_entries << std::endl;
+    of << std::endl;
+    of << "Level " << i << " Avg BPK : " << total_bits*1.0/total_entries << std::endl;
   }
-  std::cout << "Total tail size : " << total_tail_size << std::endl;
+  of << "Total tail size : " << total_tail_size << std::endl;
 }
 
 void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
-		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files) {	
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files,
+		ofstream & of) {	
   assert(naive_monkey_bits_per_key_list);
   assert(naive_monkey_bits_per_key_list->size() > 0);
   const double log_2_squared = std::pow(std::log(2), 2);
@@ -656,7 +658,7 @@ void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, 
   size_t num_levels = std::min((size_t) std::ceil(std::log((num_files - max_files_in_L0)* (size_ratio - 1.0)*1.0/size_ratio + 1)/std::log(size_ratio)) + 1,
       naive_monkey_bits_per_key_list->size()) - 1;
 
-  std::cout << "num_levels : " << num_levels << "\tnum_files : " << num_files << std::endl;
+  of << "num_levels : " << num_levels << "\tnum_files : " << num_files << std::endl;
   double S1 = 0;
   double S2 = 0;
   if (optimize_L0_files) {
@@ -712,18 +714,18 @@ void getNaiveMonkeyBitsPerKey(size_t num_entries, size_t num_entries_per_table, 
     naive_monkey_bits_per_key_list->at(0) = overall_bits_per_key;
   }
   
-  std::cout << "Configuring naive Monkey bpk list: ";
+  of << "Configuring naive Monkey bpk list: ";
   for (size_t i = 0; i + 1 < naive_monkey_bits_per_key_list->size(); i++) {
-    std::cout << naive_monkey_bits_per_key_list->at(i) << ",";
+    of << naive_monkey_bits_per_key_list->at(i) << ",";
   }
-  std::cout << naive_monkey_bits_per_key_list->back() << std::endl;
+  of << naive_monkey_bits_per_key_list->back() << std::endl;
 }
 
-void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_t runs) {
+void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, ofstream & of, uint16_t runs) {
   int l = 16;
-  std::cout << std::endl;
-  std::cout << "-----LSM state-----" << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "T" << std::setfill(' ') << std::setw(l) 
+  of << std::endl;
+  of << "-----LSM state-----" << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "T" << std::setfill(' ') << std::setw(l) 
                                                   << "P" << std::setfill(' ') << std::setw(l) 
                                                   << "B" << std::setfill(' ') << std::setw(l) 
                                                   << "E" << std::setfill(' ') << std::setw(l) 
@@ -732,21 +734,21 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                   << "file_size" << std::setfill(' ') << std::setw(l) 
                                                   << "compaction_pri" << std::setfill(' ') << std::setw(l) 
                                                   << "bpk" << std::setfill(' ') << std::setw(l);
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->size_ratio;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->buffer_size_in_pages;  
-  std::cout << std::setfill(' ') << std::setw(l) << _env->entries_per_page;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->entry_size;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->buffer_size;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->file_to_memtable_size_ratio;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->file_size;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->compaction_pri;
-  std::cout << std::setfill(' ') << std::setw(l) << _env->bits_per_key;
-  std::cout << std::endl;
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << _env->size_ratio;
+  of << std::setfill(' ') << std::setw(l) << _env->buffer_size_in_pages;  
+  of << std::setfill(' ') << std::setw(l) << _env->entries_per_page;
+  of << std::setfill(' ') << std::setw(l) << _env->entry_size;
+  of << std::setfill(' ') << std::setw(l) << _env->buffer_size;
+  of << std::setfill(' ') << std::setw(l) << _env->file_to_memtable_size_ratio;
+  of << std::setfill(' ') << std::setw(l) << _env->file_size;
+  of << std::setfill(' ') << std::setw(l) << _env->compaction_pri;
+  of << std::setfill(' ') << std::setw(l) << _env->bits_per_key;
+  of << std::endl;
 
-  std::cout << std::endl;
-  std::cout << "----- Query summary -----" << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "#I" << std::setfill(' ') << std::setw(l)
+  of << std::endl;
+  of << "----- Query summary -----" << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "#I" << std::setfill(' ') << std::setw(l)
                                                 << "#U" << std::setfill(' ') << std::setw(l)
                                                 << "#D" << std::setfill(' ') << std::setw(l)
                                                 << "#R" << std::setfill(' ') << std::setw(l)
@@ -754,17 +756,17 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                 << "#Z" << std::setfill(' ') << std::setw(l)
                                                 << "#S" << std::setfill(' ') << std::setw(l)
                                                 << "#TOTAL" << std::setfill(' ') << std::setw(l);;            
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << track->inserts_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->updates_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->point_deletes_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->range_deletes_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->point_lookups_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->zero_point_lookups_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->range_lookups_completed/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << track->total_completed/runs;
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "I" << std::setfill(' ') << std::setw(l)
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << track->inserts_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->updates_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->point_deletes_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->range_deletes_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->point_lookups_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->zero_point_lookups_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->range_lookups_completed/runs;
+  of << std::setfill(' ') << std::setw(l) << track->total_completed/runs;
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "I" << std::setfill(' ') << std::setw(l)
                                                 << "U" << std::setfill(' ') << std::setw(l)
                                                 << "D" << std::setfill(' ') << std::setw(l)
                                                 << "R" << std::setfill(' ') << std::setw(l)
@@ -773,27 +775,27 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                 << "S" << std::setfill(' ') << std::setw(l)
                                                 << "TOTAL" << std::setfill(' ') << std::setw(l);   
 
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->inserts_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->updates_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->point_deletes_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->range_deletes_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
                                               << static_cast<double>(track->point_lookups_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
                                               << static_cast<double>(track->zero_point_lookups_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->range_lookups_cost)/runs/1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->workload_exec_time)/runs/1000000;
-  std::cout << std::endl;
+  of << std::endl;
 
-  std::cout << "----- Latency(ms/op) -----" << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "avg_I" << std::setfill(' ') << std::setw(l)
+  of << "----- Latency(ms/op) -----" << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "avg_I" << std::setfill(' ') << std::setw(l)
                                                 << "avg_U" << std::setfill(' ') << std::setw(l)
                                                 << "avg_D" << std::setfill(' ') << std::setw(l)
                                                 << "avg_R" << std::setfill(' ') << std::setw(l)
@@ -802,27 +804,27 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                 << "avg_S" << std::setfill(' ') << std::setw(l)
                                                 << "avg_query" << std::setfill(' ') << std::setw(l);   
 
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->inserts_cost) / track->inserts_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->updates_cost) / track->updates_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->point_deletes_cost) / track->point_deletes_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->range_deletes_cost) / track->range_deletes_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
                                               << static_cast<double>(track->point_lookups_cost) / track->point_lookups_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4) 
                                               << static_cast<double>(track->zero_point_lookups_cost) / track->zero_point_lookups_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->range_lookups_cost) / track->range_lookups_completed / 1000000;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2) 
                                               << static_cast<double>(track->workload_exec_time) / track->total_completed / 1000000;
-  std::cout << std::endl;
+  of << std::endl;
 
-  std::cout << "----- Throughput(op/ms) -----" << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "avg_I" << std::setfill(' ') << std::setw(l)
+  of << "----- Throughput(op/ms) -----" << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "avg_I" << std::setfill(' ') << std::setw(l)
             << "avg_U" << std::setfill(' ') << std::setw(l)
             << "avg_D" << std::setfill(' ') << std::setw(l)
             << "avg_R" << std::setfill(' ') << std::setw(l)
@@ -831,47 +833,47 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
             << "avg_S" << std::setfill(' ') << std::setw(l)
             << "avg_query" << std::setfill(' ') << std::setw(l);
 
-  std::cout << std::endl;
+  of << std::endl;
 
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->inserts_completed*1000000) / track->inserts_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->updates_completed*1000000) / track->updates_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->point_deletes_completed*1000000) / track->point_deletes_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->range_deletes_completed*1000000) / track->range_deletes_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4)
             << static_cast<double>(track->point_lookups_completed*1000000) / track->point_lookups_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(4)
             << static_cast<double>(track->zero_point_lookups_completed*1000000) / track->zero_point_lookups_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->range_lookups_completed*1000000) / track->range_lookups_cost;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << static_cast<double>(track->total_completed*1000000) / track->workload_exec_time;
-  std::cout << std::endl;
+  of << std::endl;
 
-  std::cout << "----- Compaction costs -----" << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << "avg_space_amp" << std::setfill(' ') << std::setw(l)
+  of << "----- Compaction costs -----" << std::endl;
+  of << std::setfill(' ') << std::setw(l) << "avg_space_amp" << std::setfill(' ') << std::setw(l)
             << "avg_write_amp" << std::setfill(' ') << std::setw(l)
             << "avg_read_amp" << std::setfill(' ') << std::setw(l)
             << "avg_stalls" << std::setfill(' ') << std::setw(l);
 
-  std::cout << std::endl;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::endl;
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << track->space_amp/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << track->write_amp/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << track->read_amp/runs;
-  std::cout << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
+  of << std::setfill(' ') << std::setw(l) << std::fixed << std::setprecision(2)
             << track->stalls/runs;
-  std::cout << std::endl;
+  of << std::endl;
 
   if (_env->verbosity >= 1) {
-    std::cout << std::endl;
-    std::cout << "-----I/O stats-----" << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << "mem_get_count" << std::setfill(' ') << std::setw(l)
+    of << std::endl;
+    of << "-----I/O stats-----" << std::endl;
+    of << std::setfill(' ') << std::setw(l) << "mem_get_count" << std::setfill(' ') << std::setw(l)
                                                   << "mem_get_time" << std::setfill(' ') << std::setw(l)
                                                   << "sst_get_time" << std::setfill(' ') << std::setw(l)
                                                   << "mem_bloom_hit" << std::setfill(' ') << std::setw(l)
@@ -880,55 +882,55 @@ void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_
                                                   << "sst_bloom_miss" << std::setfill(' ') << std::setw(l)  
                                                   << "sst_bloom_tp_hit" << std::setfill(' ') << std::setw(l)  
                                                   << "get_cpu_nanos" << std::setfill(' ') << std::setw(l);  
-    std::cout << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << track->get_from_memtable_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->get_from_memtable_time/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->get_from_output_files_time/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bloom_memtable_hit_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bloom_memtable_miss_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bloom_sst_hit_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bloom_sst_miss_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bloom_sst_true_positive_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->get_cpu_nanos/runs;
-    std::cout << std::endl;
+    of << std::endl;
+    of << std::setfill(' ') << std::setw(l) << track->get_from_memtable_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->get_from_memtable_time/runs;
+    of << std::setfill(' ') << std::setw(l) << track->get_from_output_files_time/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bloom_memtable_hit_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bloom_memtable_miss_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bloom_sst_hit_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bloom_sst_miss_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bloom_sst_true_positive_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->get_cpu_nanos/runs;
+    of << std::endl;
 
 
-    std::cout << std::setfill(' ') << std::setw(l) << "bloom_accesses" << std::setfill(' ') << std::setw(l) 
+    of << std::setfill(' ') << std::setw(l) << "bloom_accesses" << std::setfill(' ') << std::setw(l) 
                                                   << "index_accesses" << std::setfill(' ') << std::setw(l)
                                                   << "filter_blk_hit" << std::setfill(' ') << std::setw(l)
                                                   << "index_blk_hit" << std::setfill(' ') << std::setw(l)
                                                   << "accessed_data_blks" << std::setfill(' ') << std::setw(l)
                                                   << "cached_data_blks" << std::setfill(' ') << std::setw(l);
-    std::cout << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << track->filter_block_read_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->index_block_read_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_filter_hit_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->block_cache_index_hit_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->data_block_read_count/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->data_block_cached_count/runs;
-    std::cout << std::endl;
+    of << std::endl;
+    of << std::setfill(' ') << std::setw(l) << track->filter_block_read_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->index_block_read_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->block_cache_filter_hit_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->block_cache_index_hit_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->data_block_read_count/runs;
+    of << std::setfill(' ') << std::setw(l) << track->data_block_cached_count/runs;
+    of << std::endl;
 
-    std::cout << std::setfill(' ') << std::setw(l) << "read_bytes" << std::setfill(' ') << std::setw(l)
+    of << std::setfill(' ') << std::setw(l) << "read_bytes" << std::setfill(' ') << std::setw(l)
                                                   << "read_nanos" << std::setfill(' ') << std::setw(l)
                                                   << "cpu_read_nanos" << std::setfill(' ') << std::setw(l)
                                                   << "write_bytes" << std::setfill(' ') << std::setw(l)
                                                   << "write_nanos" << std::setfill(' ') << std::setw(l)
                                                   << "cpu_write_nanos" << std::setfill(' ') << std::setw(l);  
-    std::cout << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bytes_read/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->read_nanos/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->cpu_read_nanos/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->bytes_written/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->write_nanos/runs;
-    std::cout << std::setfill(' ') << std::setw(l) << track->cpu_write_nanos/runs;
-    std::cout << std::endl;
+    of << std::endl;
+    of << std::setfill(' ') << std::setw(l) << track->bytes_read/runs;
+    of << std::setfill(' ') << std::setw(l) << track->read_nanos/runs;
+    of << std::setfill(' ') << std::setw(l) << track->cpu_read_nanos/runs;
+    of << std::setfill(' ') << std::setw(l) << track->bytes_written/runs;
+    of << std::setfill(' ') << std::setw(l) << track->write_nanos/runs;
+    of << std::setfill(' ') << std::setw(l) << track->cpu_write_nanos/runs;
+    of << std::endl;
   }
-    std::cout << std::endl;
-    std::cout << "-----Other stats-----" << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << "read_table_mem" << std::setfill(' ') << std::setw(l) << "block_cache_usage" << std::setfill(' ') << std::setw(l)<< std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << track->read_table_mem/runs << std::setfill(' ') << std::setw(l) << track->block_cache_usage << std::setfill(' ') << std::setw(l) << std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << "user_cpu_usage" << std::setfill(' ') << std::setw(l) << "sys_cpu_usage" << std::setfill(' ') << std::setw(l)<< std::endl;
-    std::cout << std::setfill(' ') << std::setw(l) << track->ucpu_pct/runs << std::setfill(' ') << std::setw(l) << track->scpu_pct/runs << std::setfill(' ') << std::setw(l) << std::endl;
+    of << std::endl;
+    of << "-----Other stats-----" << std::endl;
+    of << std::setfill(' ') << std::setw(l) << "read_table_mem" << std::setfill(' ') << std::setw(l) << "block_cache_usage" << std::setfill(' ') << std::setw(l)<< std::endl;
+    of << std::setfill(' ') << std::setw(l) << track->read_table_mem/runs << std::setfill(' ') << std::setw(l) << track->block_cache_usage << std::setfill(' ') << std::setw(l) << std::endl;
+    of << std::setfill(' ') << std::setw(l) << "user_cpu_usage" << std::setfill(' ') << std::setw(l) << "sys_cpu_usage" << std::setfill(' ') << std::setw(l)<< std::endl;
+    of << std::setfill(' ') << std::setw(l) << track->ucpu_pct/runs << std::setfill(' ') << std::setw(l) << track->scpu_pct/runs << std::setfill(' ') << std::setw(l) << std::endl;
 }
 
 void print_point_read_stats_distance_collector(std::vector<std::pair<double, double> >* point_reads_statistics_distance_collector) {
@@ -1059,7 +1061,7 @@ void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, 
 
 }
 
-void populateQueryTracker(QueryTracker *query_track, DB* _db, const BlockBasedTableOptions& table_options, EmuEnv* _env) {
+void populateQueryTracker(QueryTracker *query_track, DB* _db, const BlockBasedTableOptions& table_options, EmuEnv* _env, ofstream & of) {
   query_track->workload_exec_time = query_track->inserts_cost + query_track->updates_cost + query_track->point_deletes_cost 
                                     + query_track->range_deletes_cost + query_track->point_lookups_cost + query_track->zero_point_lookups_cost
                                     + query_track->range_lookups_cost;
@@ -1106,37 +1108,38 @@ void populateQueryTracker(QueryTracker *query_track, DB* _db, const BlockBasedTa
 
   string table_readers_mem;
   _db->GetProperty("rocksdb.estimate-table-readers-mem", &table_readers_mem);
-  std::cout << "rocksdb.estimate-table-readers-mem:" << table_readers_mem << std::endl;
+  of << "rocksdb.estimate-table-readers-mem:" << table_readers_mem << std::endl;
   query_track->read_table_mem += atoi(table_readers_mem.c_str());
-  std::cout << std::endl;
+  of << std::endl;
 
   // block cache
   if(table_options.block_cache){
     query_track->block_cache_usage += table_options.block_cache->GetUsage();
   }
 
-  query_track->data_block_read_count += GetTotalUsedDataBlocks(_env->num_levels, _env->verbosity);
+  query_track->data_block_read_count += GetTotalUsedDataBlocks(_env->num_levels, _env->verbosity, of);
 }
 
-void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track){
+void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track,
+		ofstream & of){
     my_clock start_clock, end_clock;    // clock to get query time
     string value;
     Status s;
 
     if (verbosity == 2)
-      std::cout << "Q " << key << "" << std::endl;
+      of << "Q " << key << "" << std::endl;
     if (my_clock_get_time(&start_clock) == -1)
-      std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+      of << s.ToString() << "start_clock failed to get time" << std::endl;
     //s = db->Get(*read_op, ToString(key), &value);
     s = _db->Get(*read_op, key, &value);
     // assert(s.ok());
     if (my_clock_get_time(&end_clock) == -1) 
-      std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+      of << s.ToString() << "end_clock failed to get time" << std::endl;
     
     if (!s.ok()) {    // zero_reuslt_point_lookup
         if (verbosity == 2) {
 
-           std::cerr << s.ToString() << "key = " << key << std::endl;
+           of << s.ToString() << "key = " << key << std::endl;
         }
         query_track->zero_point_lookups_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->zero_point_lookups_completed;
@@ -1180,12 +1183,13 @@ void write_collected_throughput(std::vector<vector<std::pair<double, double> > >
 int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableOptions *table_op, 
                 const WriteOptions *write_op, const ReadOptions *read_op, const FlushOptions *flush_op,
                 EnvOptions* env_op, const WorkloadDescriptor *wd, QueryTracker *query_track,
+		ofstream & of,
                 std::vector<std::pair<double, double> >* throughput_and_bpk_collector,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector) {
 
   Status s;
   Iterator *it = _db-> NewIterator(*read_op); // for range reads
-  uint64_t counter = 0, mini_counter = 0; // tracker for progress bar. TODO: avoid using these two 
+  uint64_t counter = 0; // tracker for progress bar
   uint32_t cpu_sample_counter = 0;
   bool eval_point_read_statistics_accuracy_flag = false;
   if (point_reads_statistics_distance_collector != nullptr) {
@@ -1200,12 +1204,12 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
   my_clock start_clock, end_clock;    // clock to get query time
   // Clear System page cache before running
   if (_env->clear_sys_page_cache) { 
-    std::cout << "\nClearing system page cache before experiment ..."; 
+    of << "\nClearing system page cache before experiment ..."; 
     fflush(stdout);
     clearPageCache();
     get_perf_context()->Reset();
     get_iostats_context()->Reset();
-    std::cout << " OK!" << std::endl;
+    of << " OK!" << std::endl;
   }
 
   CpuUsage cpu_stat;
@@ -1221,6 +1225,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
   }
   int eval_point_read_statistics_accuracy_count = 0;
   DB* ground_truth_db = nullptr;
+
+  auto startTime = std::chrono::steady_clock::now();
+  auto lastUpdateTime = startTime;
   for (const auto &qd : wd->queries) { 
     std::string key, start_key, end_key;
     std::string value;
@@ -1245,12 +1252,12 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         key = entry_ptr->key;
         value = entry_ptr->value;
         if (_env->verbosity == 2)
-          std::cout << static_cast<char>(qd.type) << " " << key << " " << value << "" << std::endl;
+          of << static_cast<char>(qd.type) << " " << key << " " << value << "" << std::endl;
         if (my_clock_get_time(&start_clock) == -1)
-          std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+          of << s.ToString() << "start_clock failed to get time" << std::endl;
         s = _db->Put(*write_op, key, value);
         if (my_clock_get_time(&end_clock) == -1) 
-          std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+          of << s.ToString() << "end_clock failed to get time" << std::endl;
         if (!s.ok()) std::cerr << s.ToString() << std::endl;
         assert(s.ok());
         query_track->inserts_cost += getclock_diff_ns(start_clock, end_clock);
@@ -1273,14 +1280,14 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
 		}
         }*/
         if (_env->verbosity == 2)
-          std::cout << static_cast<char>(qd.type) << " " << key << " " << value << "" << std::endl;
+          of << static_cast<char>(qd.type) << " " << key << " " << value << "" << std::endl;
         if (my_clock_get_time(&start_clock) == -1)
-          std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+          of << s.ToString() << "start_clock failed to get time" << std::endl;
         //s = _db->Put(*write_op, ToString(key), value);
         s = _db->Put(*write_op, key, value);
         if (!s.ok()) std::cerr << s.ToString() << std::endl;
         if (my_clock_get_time(&end_clock) == -1) 
-          std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+          of << s.ToString() << "end_clock failed to get time" << std::endl;
         assert(s.ok());
         query_track->updates_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->updates_completed;
@@ -1300,13 +1307,13 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
 	    }
         } */
         if (_env->verbosity == 2)
-          std::cout << static_cast<char>(qd.type) << " " << key << "" << std::endl;
+          of << static_cast<char>(qd.type) << " " << key << "" << std::endl;
         if (my_clock_get_time(&start_clock) == -1)
-          std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+          of << s.ToString() << "start_clock failed to get time" << std::endl;
         //s = _db->Delete(*write_op, ToString(key));
         s = _db->Delete(*write_op, key);
         if (my_clock_get_time(&end_clock) == -1) 
-          std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+          of << s.ToString() << "end_clock failed to get time" << std::endl;
         assert(s.ok());
         query_track->point_deletes_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->point_deletes_completed;
@@ -1328,13 +1335,13 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         start_key = rentry_ptr->key;
         end_key = rentry_ptr->end_key;
         if (_env->verbosity == 2)
-          std::cout << static_cast<char>(qd.type) << " " << start_key << " " << end_key << "" << std::endl;
+          of << static_cast<char>(qd.type) << " " << start_key << " " << end_key << "" << std::endl;
         if (my_clock_get_time(&start_clock) == -1)
-          std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+          of << s.ToString() << "start_clock failed to get time" << std::endl;
         //s = _db->DeleteRange(*write_op, _db->DefaultColumnFamily(), ToString(start_key), ToString(end_key));
         s = _db->DeleteRange(*write_op, _db->DefaultColumnFamily(), start_key, end_key);
         if (my_clock_get_time(&end_clock) == -1) 
-          std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+          of << s.ToString() << "end_clock failed to get time" << std::endl;
         assert(s.ok());
         query_track->range_deletes_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->range_deletes_completed;
@@ -1352,7 +1359,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         query_track->range_deletes_completed > 0) {
           point_reads_collector.push_back(key);
         }
-		    db_point_lookup(_db, read_op, key, _env->verbosity, query_track);
+		    db_point_lookup(_db, read_op, key, _env->verbosity, query_track, of);
         break;
 
       case RANGE_LOOKUP:
@@ -1363,11 +1370,11 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         //end_key = start_key + rentry_ptr->range;
         end_key = rentry_ptr->end_key;
         if (_env->verbosity == 2)
-          std::cout << static_cast<char>(qd.type) << " " << start_key << " " << end_key << "" << std::endl;
+          of << static_cast<char>(qd.type) << " " << start_key << " " << end_key << "" << std::endl;
         it->Refresh();    // to update a stale iterator view
         assert(it->status().ok());
         if (my_clock_get_time(&start_clock) == -1)
-          std::cerr << s.ToString() << "start_clock failed to get time" << std::endl;
+          of << s.ToString() << "start_clock failed to get time" << std::endl;
        
         for (it->Seek(start_key); it->Valid(); it->Next()) {
           // std::cout << "found key = " << it->key().ToString() << std::endl;
@@ -1376,9 +1383,9 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
           }
         }
         if (my_clock_get_time(&end_clock) == -1) 
-          std::cerr << s.ToString() << "end_clock failed to get time" << std::endl;
+          of << s.ToString() << "end_clock failed to get time" << std::endl;
         if (!it->status().ok()) {
-          std::cerr << it->status().ToString() << std::endl;
+          of << it->status().ToString() << std::endl;
         }
         query_track->range_lookups_cost += getclock_diff_ns(start_clock, end_clock);
         ++query_track->range_lookups_completed;
@@ -1386,7 +1393,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         break;
 
       default:
-          std::cerr << "Unknown query type: " << static_cast<char>(qd.type) << std::endl;
+          of << "Unknown query type: " << static_cast<char>(qd.type) << std::endl;
     }
     
     if(counter%(wd->total_num/50) == 0){ 
@@ -1395,7 +1402,12 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
       scpu_pct += cpu_stat.sys_time_pct;
       cpu_sample_counter++;
     }
-    showProgress(wd->total_num, counter, mini_counter);
+    auto currentTime = std::chrono::steady_clock::now();	
+    auto timeSinceLastUpdate = std::chrono::duration_cast<std::chrono::seconds>(currentTime - lastUpdateTime).count();
+    if (timeSinceLastUpdate >= 2 || wd->total_num == counter) {
+	    showProgress(wd->total_num, counter);
+	    lastUpdateTime = currentTime;
+    }
 
     if (collect_throughput_flag) {
       if (counter%_env->throughput_collect_interval == 0) {
@@ -1495,7 +1507,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
   return 0;
 }
 
-uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity) {
+uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity, ofstream &of) {
   if (num_levels == 1) return 0;
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   if (get_perf_context()->level_to_perf_context != nullptr) {
@@ -1513,16 +1525,16 @@ uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity) {
       total_used_data_blocks += perf_context_single_level.used_data_block_count;
       total_false_positives += perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive;
       if (verbosity > 0) {
-        std::cout << " Level " << i << ": ";
-        std::cout << " used data blocks (" << perf_context_single_level.used_data_block_count << ") ";
-        std::cout << " filter/index hits(" << perf_context_single_level.block_cache_hit_count << ") ";
-        std::cout << " filter/index misses(" << perf_context_single_level.block_cache_miss_count << ") ";
-        std::cout << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << " with (full positive: " << perf_context_single_level.bloom_filter_full_positive << ")" << std::endl;
+        of << " Level " << i << ": ";
+        of << " used data blocks (" << perf_context_single_level.used_data_block_count << ") ";
+        of << " filter/index hits(" << perf_context_single_level.block_cache_hit_count << ") ";
+        of << " filter/index misses(" << perf_context_single_level.block_cache_miss_count << ") ";
+        of << " false positives (" << perf_context_single_level.bloom_filter_full_positive - perf_context_single_level.bloom_filter_full_true_positive << "). " << " with (full positive: " << perf_context_single_level.bloom_filter_full_positive << ")" << std::endl;
       }
     }
   }
   if (verbosity > 0) {
-    std::cout << "Tree : total used data blocks (" << total_used_data_blocks << ") " << " total false positves (" << total_false_positives << ")." << std::endl;
+    of << "Tree : total used data blocks (" << total_used_data_blocks << ") " << " total false positves (" << total_false_positives << ")." << std::endl;
   }
   return total_used_data_blocks;
 }

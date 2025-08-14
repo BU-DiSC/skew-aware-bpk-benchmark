@@ -45,27 +45,28 @@ void collectDbStats(DB* db, DbStats *stats, bool print_point_read_stats = false,
 Status createNewSstFile(const std::string filename_to_read, const std::string filename_to_write, const Options *op,
   EnvOptions *env_op, const ReadOptions *read_op);
 Status createDbWithMonkeyPlus(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream &of);
 Status createDbWithMonkey(const EmuEnv* _env, DB* db, DB* db_monkey,  Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream &of);
 Status createDbWithOptBpk(const EmuEnv* _env, DB* db, DB* db_optimal,Options *op, BlockBasedTableOptions *table_op, const WriteOptions *write_op,
-  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats);
+  ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions *env_op, const DbStats & db_stats, ofstream &of);
 
 void getNaiveMonkeyBitsPerKey(size_t num_ingestion, size_t num_entries_per_table, double size_ratio, size_t max_files_in_L0,
-		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files);
+		double overall_bits_per_key, std::vector<double>* naive_monkey_bits_per_key_list, bool dynamic_cmpct, bool optimize_L0_files, ofstream & of);
 
 // Other helper functions
-void printBFBitsPerKey(DB *db);
+void printBFBitsPerKey(DB *db, ofstream &of);
 
-void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, uint16_t n = 1);
+void printEmulationOutput(const EmuEnv* _env, const QueryTracker *track, ofstream & of, uint16_t n = 1);
 
 void configOptions(EmuEnv* _env, Options *op, BlockBasedTableOptions *table_op, WriteOptions *write_op, ReadOptions *read_op, FlushOptions *flush_op);
 
-void populateQueryTracker(QueryTracker *track, DB *_db, const BlockBasedTableOptions& table_options, EmuEnv* _env);
+void populateQueryTracker(QueryTracker *track, DB *_db, const BlockBasedTableOptions& table_options, EmuEnv* _env, ofstream &of);
 
-void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track);
+void db_point_lookup(DB* _db, const ReadOptions *read_op, const std::string key, const int verbosity, QueryTracker *query_track,
+		ofstream & of);
 
-uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity);
+uint64_t GetTotalUsedDataBlocks(uint32_t num_levels, int verbosity, ofstream & of);
 
 void dump_query_stats(const DbStats & db_stats, const std::string & path);
 
@@ -77,6 +78,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op,
                 const BlockBasedTableOptions *table_op, const WriteOptions *write_op, 
                 const ReadOptions *read_op, const FlushOptions *flush_op, EnvOptions* env_op, 
                 const WorkloadDescriptor *wd, QueryTracker *query_track,
+		ofstream & of,
                 std::vector<std::pair<double, double> >* throughput_collector = nullptr,
                 std::vector<SimilarityResult >* point_reads_statistics_distance_collector = nullptr);   // run_workload internal
 
@@ -93,22 +95,41 @@ std::vector<std::string> StringSplit(std::string &str, char delim);
 
 
 // Print progress bar during workload execution
-// n : total number of queries
-// count : number of queries finished
-// mini_count : keep track of current progress of percentage
-inline void showProgress(const uint64_t &n, const uint64_t &count, uint64_t &mini_count) {
-  if(count % (n/100) == 0){
-  	if (count == n || n == 0) {
-	    std::cout << ">OK!\n";
-	    return;
-  	} 
-    if(count % (n/10) == 0) {
-      std::cout << ">" << ++mini_count * 10 << "%<";
-      fflush(stdout);
+// total : total number of queries
+// current : number of queries finished
+inline void showProgress(const uint64_t &total, const uint64_t &current) {
+    int barWidth = 50;
+    // Calculate progress percentage
+    float progress = std::min(current*1.0/ total, 1.0); 
+
+    // Determine how many blocks to display
+    int pos = static_cast<int>(barWidth * progress);
+
+    // Create the progress bar string
+    std::string bar;
+    bar.reserve(barWidth + 10); // Reserve space for efficiency
+
+    bar += "[";
+    for (int i = 0; i < barWidth; ++i) {
+	if (i < pos) {
+		bar += "=";
+	} else if (i == pos) {
+		bar += ">";
+	} else {
+		bar += " ";
+	}
     }
-  	std::cout << "=";
-    fflush(stdout);
-  }
+    bar += "]";
+
+    // Calculate percentage
+    int percent = static_cast<int>(progress * 100.0);
+
+    // Output the progress bar
+    std::cout << "\r" << bar << " " << percent << "% (" << current << "/" << total << ")";
+    std::cout.flush(); // Ensure it's displayed immediately
+
+    // If complete, add a newline
+    if (current >= total) std::cout << std::endl;
 }
 
 // Hardcode command to clear system cache 

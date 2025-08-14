@@ -150,6 +150,12 @@ int runExperiments(EmuEnv* _env) {
       runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, &temp_collector);
       merge_tput_vectors(&throughput_and_bpk_collector, &temp_collector);
     }
+
+    std::vector<rocksdb::LiveFileMetaData> live_files;
+    db->GetLiveFilesMetaData(&live_files);
+    uint64_t adjusted_block_cache = _env->block_cache_capacity*1024;
+    // account for additional memory occupied by extra statistics
+    adjusted_block_cache = std::max((uint64_t)(_env->block_cache_capacity*1024), live_files.size()*608 + 64*8) - (live_files.size()*608 + 64*8);
     
     // Collect stats after per run
     SetPerfLevel(kDisable);
@@ -310,7 +316,7 @@ int runExperiments(EmuEnv* _env) {
       ;// do nothing
     } else {
       table_options.block_cache.reset();
-      table_options.block_cache = NewLRUCache(_env->block_cache_capacity*1024, -1, false, _env->block_cache_high_priority_ratio);
+      table_options.block_cache = NewLRUCache(adjusted_block_cache, -1, false, _env->block_cache_high_priority_ratio);
       ;// invoke manual block_cache
     }
     table_options.bpk_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosynePlusBpkAlloc;

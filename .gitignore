@@ -18,4 +18,8 @@ simple_benchmark
 simple_benchmark_2
 simple_benchmark_debug
 simple_benchmark_2_debug
+runtime_tput_exp
+query_lat_exp
+runtime_tput_exp_debug
+query_lat_exp_debug
 

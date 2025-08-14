@@ -3,7 +3,7 @@
 P=1024
 B=32
 T=4
-E=512
+E=256
 R=1
 bpk=6
 bpk_list=("2" "3" "4" "5" "6" "7")
@@ -28,8 +28,13 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
-			./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			if [ "${ZD}" == "1" ]; then
+				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt"
+				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_NDEV${NDEV}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk-${bpk}-output.txt
+			else
+				echo "./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
+				./plain_benchmark -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr > ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
+			fi
 			rm ${DB_HOME}/*
 			rm ${DB_HOME}-mnemosyne/*
 			rm ${DB_HOME}-mnemosyne-plus/*
