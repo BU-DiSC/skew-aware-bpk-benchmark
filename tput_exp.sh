@@ -21,8 +21,8 @@ mkdir -p "${dir}"
 #cp output/*.sh ${dir}
 for bpk in ${bpk_list[@]}
 do
-	echo "./runtime_tput_exp -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ${WORKLOAD} -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dw --dr --clct-tputi ${throughput_interval} --stats-op ${dir}/${WORKLOAD_NAME}_output_bpk-${bpk}.txt"
-	./runtime_tput_exp -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ${WORKLOAD} -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dw --dr --clct-tputi ${throughput_interval} --stats-op ${dir}/${WORKLOAD_NAME}_output_bpk-${bpk}.txt
+	echo "./runtime_tput_exp -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ${WORKLOAD} -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dw --dr --clct-tputi ${throughput_interval} --run-stats-op ${dir}/${WORKLOAD_NAME}_output_bpk-${bpk}.txt"
+	./runtime_tput_exp -T ${T} -E ${E} --dd --no_dynamic_cmpct -p ${DB_HOME} --qwp ${WORKLOAD} -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dw --dr --clct-tputi ${throughput_interval} --run-stats-op ${dir}/${WORKLOAD_NAME}_output_bpk-${bpk}.txt
 	mv throughputs.txt ${dir}/${WORKLOAD_NAME}-bpk-${bpk}_throughputs.txt
 	mv tracked_avg_bpk.txt ${dir}/${WORKLOAD_NAME}-bpk-${bpk}_tracked_avg_bpk.txt
 	

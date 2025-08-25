@@ -1,12 +1,8 @@
 #!/bin/bash
 ZD=$1
 Z=$2
-NDEV=${3:-"3.0"}
 str="Z${Z}_ZD${ZD}_bpk"
 
-if [ "${ZD}" == "1" ]; then
-	str="Z${Z}_ZD${ZD}_NDEV${NDEV}_bpk"
-fi
 
 
 echo uniform

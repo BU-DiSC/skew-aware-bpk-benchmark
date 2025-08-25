@@ -464,7 +464,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<uint32_t> collect_throughput_interval_cmd(group4, "collect_throughput_interval", "The interval of collecting the overal throughput", {"clct-tputi", "collect-throughput_interval"});
   args::ValueFlag<std::string> throughput_path_cmd(group4, "throughput_path", "path for dumping the collected throughputs when executing the workload", {"tput-op", "throughput-output-path"});
   args::ValueFlag<std::string> bpk_path_cmd(group4, "bpk_path", "path for dumping the collected average bpk when executing the workload", {"bpk-op", "bpk-output-path"});
-  args::ValueFlag<std::string> running_stats_output_path_cmd(group4, "running_stats_path", "path for outputing the running statistics for each internal experiment", {"stats-op", "run-stats-output-path"});
+  args::ValueFlag<std::string> running_stats_output_path_cmd(group4, "running_stats_path", "path for outputing the running output for each internal experiment", {"run-stats-op", "run-stats-output-path"});
   
 
   try {

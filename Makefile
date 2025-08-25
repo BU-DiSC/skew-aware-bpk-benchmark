@@ -17,20 +17,13 @@ endif
 
 .PHONY: clean librocksdb
 
-all: bpk_benchmark query_lat_exp query_statistics_est_benchmark simple_benchmark
+all: bpk_benchmark query_lat_exp query_statistics_est_benchmark runtime_tput_exp
 
 query_statistics_est_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 query_statistics_est_benchmark_debug: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
 	$(CXX) $(CXXFLAGS) -g query_statistics_est_benchmark.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
-
-
-simple_benchmark: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
-	$(CXX) $(CXXFLAGS) $@.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O2 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
-
-simple_benchmark_debug: librocksdb_debug emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc
-	$(CXX) $(CXXFLAGS) -g simple_benchmark.cc -o$@ emu_environment.cc emu_util.cc workload_stats.cc aux_time.cc ${rocksdbpath}/librocksdb.a -I${rocksdbpath}/include -I${rocksdbpath} -O0 -std=c++11 $(PLATFORM_LDFLAGS) $(PLATFORM_CXXFLAGS) $(EXEC_LDFLAGS)
 
 
 runtime_tput_exp: librocksdb emu_environment.cc workload_stats.cc aux_time.cc emu_util.cc

@@ -2,17 +2,13 @@ import sys
 
 runs = int(sys.argv[1])
 output_dir = sys.argv[2]
+input_dir = sys.argv[3]
 
-bpk_list = ["1.0","1.5","2.0","2.5","3.0","3.5","4.0","4.5","5.0","5.5","6.0","6.5","7.0","7.5","8.0","8.5","9.0","9.5","10.0","10.5","11.0"]
-bpk_list = ["2.0","3.0","4.0","5.0","6.0","7.0","8.0", "9.0", "10.0", "11.0"]
 bpk_list = ["4.0", "6.0", "8.0"]
 Z_list = ["0.0", "0.01", "0.05", "0.1", "0.25", "0.5", "0.75", "1.0"]
 ZD_list = ["0", "1"]
-#bpk_list = ["1.0", "9.0", "12.0"]
-#Z_list= ["0.0"]
-#ZD_list= ["3"]
 def aggregate(filename, result, print_flag=False):
-    print(filename)
+    print("Merging experimental data from " + filename)
     infile = open(filename, "r")
     data = infile.readlines()
     infile.close()
@@ -64,8 +60,8 @@ for j in range(len(ZD_list)):
         for k in range(1, runs+1):
         #for k in range(6, runs+6):
             #aggregate("output" + str(k) + "/data_blocks" + "_ZD" + str(ZD_list[j])  + "_Z" + str(Z_list[i])+ "_result.txt", total_result[j][i])
-            aggregate("output-bpk-" + str(k) + "/data_blocks" + "_ZD" + str(ZD_list[j])  + "_bpk-" + str(bpk_list[i])+ "_result.txt", total_result[j][i])
-            aggregate("output-bpk-" + str(k) + "/query_latency" + "_ZD" + str(ZD_list[j])  + "_bpk-" + str(bpk_list[i])+ "_result.txt", total_result_latency[j][i])
+            aggregate(input_dir + str(k) + "/data_blocks" + "_ZD" + str(ZD_list[j])  + "_bpk-" + str(bpk_list[i])+ "_result.txt", total_result[j][i])
+            aggregate(input_dir + str(k) + "/query_latency" + "_ZD" + str(ZD_list[j])  + "_bpk-" + str(bpk_list[i])+ "_result.txt", total_result_latency[j][i])
             #aggregate("output" + str(k) + "/query_latency" + "_ZD" + str(ZD_list[j])  + "_Z" + str(Z_list[i])+ "_result.txt", total_result_latency[j][i])
         #print(total_result[j])
         output(output_dir + "/data_blocks"+ "-bpk-" + str(bpk_list[i]) + "_ZD" + str(ZD_list[j]) + ".txt", total_result[j][i])

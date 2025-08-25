@@ -29,6 +29,7 @@ std::string ingestion_workloadPath = "./workload.txt";
 std::string query_workloadPath = "./workload.txt";
 std::string kDBPath = "./db_working_home";
 std::string query_statsPath = "./dump_query_stats.txt";
+ofstream running_stats_of;
 
 std::string num_point_reads_statistics_diff_path = "./num_point_reads_stats_diff.txt";
 std::string num_empty_point_reads_statistics_diff_path = "./num_empty_point_reads_stats_diff.txt";
@@ -52,9 +53,11 @@ int main(int argc, char *argv[]) {
   std::vector<SimilarityResult> point_reads_statistics_distance_naiive_track_collector;
   std::vector<SimilarityResult> point_reads_statistics_distance_dynamic_compaction_aware_track_collector;
   _env->point_reads_track_method = rocksdb::PointReadsTrackMethod::kNaiiveTrack;
+  std::cout << "Statistics accuracy measurement with naiive tracking." << std::endl;
   runExperiments(_env, &point_reads_statistics_distance_naiive_track_collector);
   _env->bits_per_key_alloc_type = rocksdb::BitsPerKeyAllocationType::kMnemosynePlusBpkAlloc;
   _env->point_reads_track_method = rocksdb::PointReadsTrackMethod::kDynamicCompactionAwareTrack;
+  std::cout << "Statistics accuracy measurement with Merlin tracking." << std::endl;
   runExperiments(_env, &point_reads_statistics_distance_dynamic_compaction_aware_track_collector); 
   writePointReadStatsDiff({&point_reads_statistics_distance_naiive_track_collector,
    &point_reads_statistics_distance_dynamic_compaction_aware_track_collector}, {"naiive","dynamic_compaction_aware"}, _env->eval_point_read_statistics_accuracy_interval);
@@ -76,7 +79,7 @@ void prepareExperiment(EmuEnv* _env) {
   loadWorkload(&ingestion_wd);
   options.create_if_missing = true;
   Status destroy_status = DestroyDB(_env->path, options);
-  if (!destroy_status.ok()) std::cout << destroy_status.ToString() << std::endl;
+  if (!destroy_status.ok()) running_stats_of << destroy_status.ToString() << std::endl;
 
   Status s;
   s = DB::Open(options, _env->path, &db);
@@ -84,7 +87,8 @@ void prepareExperiment(EmuEnv* _env) {
 
   // Prepare Perf and I/O stats
   QueryTracker *query_track = new QueryTracker();   // stats tracker for each run
-  runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, query_track);
+  std::cout << "Pre-populating the database using the insert-only workload ..." << std::endl;
+  runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &ingestion_wd, query_track, running_stats_of);
 
   s = CloseDB(db, flush_options);
   assert(s.ok());
@@ -111,16 +115,15 @@ int runExperiments(EmuEnv* _env, std::vector<SimilarityResult >* point_reads_sta
    EnvOptions env_options (options);
   // parsing workload
   loadWorkload(&query_wd);
-
-
-  
+ 
   // Starting experiments
   assert(_env->experiment_runs >= 1);
   std::vector<SimilarityResult > temp_point_reads_statistics_distance_collector;
-  std::string copy_db_cmd = "mkdir -p " +  _env->path + "-to-be-eval && rm " + _env->path + "-to-be-eval/* && cp " + _env->path + "/* " + _env->path + "-to-be-eval/";
+  std::string copy_db_cmd = "mkdir -p " +  _env->path + "-to-be-eval && touch " + _env->path + "-to-be-eval/tmp.txt && rm " + _env->path + "-to-be-eval/* && cp " + _env->path + "/* " + _env->path + "-to-be-eval/";
   for (int i = 0; i < _env->experiment_runs; ++i) {
     system(copy_db_cmd.c_str());
-    // Reopen DB
+    std::cout << "[Run " << i+1 << "] " << std::endl;
+    // Open DB
     Status s;
     s = DB::Open(options, _env->path + "-to-be-eval", &db);
     if (!s.ok()) std::cerr << s.ToString() << std::endl;
@@ -128,7 +131,7 @@ int runExperiments(EmuEnv* _env, std::vector<SimilarityResult >* point_reads_sta
     // Prepare Perf and I/O stats
     QueryTracker *query_track = new QueryTracker();   // stats tracker for each run
     
-    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, nullptr, &temp_point_reads_statistics_distance_collector);
+    runWorkload(db, _env, &options, &table_options, &write_options, &read_options, &flush_options, &env_options, &query_wd, query_track, running_stats_of, nullptr, &temp_point_reads_statistics_distance_collector);
     if (point_reads_statistics_distance_collector->empty()) {
         *point_reads_statistics_distance_collector = temp_point_reads_statistics_distance_collector;
     } else {
@@ -142,8 +145,8 @@ int runExperiments(EmuEnv* _env, std::vector<SimilarityResult >* point_reads_sta
     assert(s.ok());
     delete query_track;
 
-    std::cout << "End of experiment run: " << i+1 << std::endl;
-    std::cout << std::endl;
+    running_stats_of << "End of experiment run: " << i+1 << std::endl;
+    running_stats_of << std::endl;
   }
 
   if (!point_reads_statistics_distance_collector->empty()) {
@@ -199,13 +202,14 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});
 
   args::ValueFlag<uint32_t> eval_point_read_statistics_accuracy_interval_cmd(group4, "eval_point_read_interval", "The interval of insert operations that compares the statistics of point reads", {"epri", "eval_point_read_interval"});
+  args::ValueFlag<std::string> running_stats_output_path_cmd(group4, "running_stats_path", "path for outputing the running output for each internal experiment", {"run-stats-op", "run-stats-output-path"});
 
 
   try {
       parser.ParseCLI(argc, argv);
   }
   catch (args::Help&) {
-      std::cout << parser;
+      running_stats_of << parser;
       exit(0);
       // return 0;
   }
@@ -255,6 +259,8 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
 
   num_point_reads_statistics_diff_path = num_point_reads_stats_diff_path_cmd ? args::get(num_point_reads_stats_diff_path_cmd) : num_point_reads_statistics_diff_path;
   num_empty_point_reads_statistics_diff_path = num_empty_point_reads_stats_diff_path_cmd ? args::get(num_empty_point_reads_stats_diff_path_cmd) : num_empty_point_reads_statistics_diff_path;
+  std::string output_path = running_stats_output_path_cmd ? args::get(running_stats_output_path_cmd) : "./output_stats.txt";
+  running_stats_of.open(output_path.c_str());
   return 0;
 }
 
@@ -323,7 +329,7 @@ void writePointReadStatsDiff(std::vector<std::vector<SimilarityResult >* > point
     }
     num_point_reads_stats_diff_ofs.close();
 
-    std::cout << "Finished writing the tracked statistics difference for the number of point reads." << std::endl;
+    running_stats_of << "Finished writing the tracked statistics difference for the number of point reads." << std::endl;
 
     ofstream num_empty_point_reads_stats_diff_ofs(num_empty_point_reads_statistics_diff_path.c_str());
     num_empty_point_reads_stats_diff_ofs << "ops";
@@ -381,5 +387,5 @@ void writePointReadStatsDiff(std::vector<std::vector<SimilarityResult >* > point
     }
     num_empty_point_reads_stats_diff_ofs.close();
 
-    std::cout << "Finished writing the tracked statistics difference for the number of empty point reads." << std::endl;
+    running_stats_of << "Finished writing the tracked statistics difference for the number of empty point reads." << std::endl;
 }

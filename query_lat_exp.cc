@@ -396,7 +396,7 @@ int parse_arguments2(int argc, char *argv[], EmuEnv* _env) {
   args::ValueFlag<std::string> query_wpath_cmd(group4, "wpath", "path for query workload files", {"qwp", "query-wpath"});
   args::ValueFlag<std::string> query_stats_path_cmd(group4, "query_stats_path", "path for dumping query stats", {"qsp", "query-stats-path"});
   args::ValueFlag<int> num_levels_cmd(group1, "L", "The number of levels to fill up with data [def: -1]", {'L', "num_levels"});
-  args::ValueFlag<std::string> running_stats_output_path_cmd(group4, "running_stats_path", "path for outputing the running statistics for each internal experiment", {"stats-op", "run-stats-output-path"});
+  args::ValueFlag<std::string> running_stats_output_path_cmd(group4, "running_stats_path", "path for outputing the running statistics for each internal experiment", {"run-stats-op", "run-stats-output-path"});
 
   args::Flag print_sst_stat_cmd(group4, "print_sst_stat", "print the stat of SST files", {"ps", "print_sst"});
   args::Flag dump_query_stats_cmd(group4, "dump_query_stats", "print the stats of queries", {"dqs", "dump_query_stats"});

@@ -1434,7 +1434,7 @@ int runWorkload(DB* _db, const EmuEnv* _env, Options *op, const BlockBasedTableO
         assert(s.ok());
         s = BackgroundJobMayAllCompelte(_db);
         assert(s.ok());
-        std::string create_temp_dir_cmd = "mkdir -p " +  _env->path + "-temp && rm " + _env->path + "-temp/*";
+        std::string create_temp_dir_cmd = "mkdir -p " +  _env->path + "-temp && touch " + _env->path + "-temp/tmp.txt && rm " + _env->path + "-temp/*";
         system(create_temp_dir_cmd.c_str());
         sleep_for_ms(WAIT_INTERVAL*10);
         std::string copy_db_cmd = "cp " + _env->path + "-to-be-eval/* " + _env->path + "-temp/";

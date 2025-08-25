@@ -135,7 +135,6 @@ std::pair<double, double> ComputePointQueriesStatisticsByEuclideanDistance(DbSta
 }
 
 void loadWorkload(WorkloadDescriptor *wd) {
-	std::cout << "Loading workload ..." << std::endl;
   assert(wd != nullptr);
   assert(wd->queries.size() == 0);
 	std::ifstream f;
@@ -224,7 +223,6 @@ void loadWorkload(WorkloadDescriptor *wd) {
   wd->actual_insert_num = wd->insert_num;   
   wd->actual_total_num = wd->total_num;    
   f.close();
-  std::cout << "Load complete ..." << std::endl;
 }
 
 void dumpStats(QueryTracker *sample, const QueryTracker *single) {
