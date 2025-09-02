@@ -5,11 +5,8 @@ B=32
 E=512
 T=4
 # Remember to specify a path for your dedicated storage device
-DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
-#DB_HOME="/mnt/ramd/zczhu/db_working_home"
-#WORKLOAD_HOME="/scratchHDDa/zczhu/dynamic_bpk_emulation/workload_generator_scripts/"
+DB_HOME="${RAM_DB_HOME:-./db_working_home}"
 WORKLOAD_HOME="../workload_generator_scripts/"
-#DB_HOME="./db_working_home"
 Z_list=("1.0" "0.75" "0.5" "0.25" "0.1" "0.05" "0.01" "0.0")
 ZD_list=("0" "1")
 BCC=65536
@@ -22,9 +19,8 @@ do
 	do
 		for bpk in ${bpk_list[@]}
 		do
-			echo "./bpk_benchmark -E${E} -P${P} -T${T} -B ${B} -p ${DB_HOME} --BCC ${BCC} -b ${bpk} --dd --dr --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt --dqs --query-stats-path ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_query_stats.txt  --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt"
-			./bpk_benchmark -P${P} -T${T} -E ${E} -B ${B} -p ${DB_HOME} -V 1 --BCC ${BCC} -b ${bpk} --dd --dr --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt --dqs --query-stats-path ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_query_stats.txt --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt
-			rm ${DB_HOME}/*
+			echo "./bpk_benchmark -E${E} -P${P} -T${T} -B ${B} -p ${DB_HOME} --BCC ${BCC} -b ${bpk} --dd --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt --dqs --query-stats-path ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_query_stats.txt  --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt"
+			./bpk_benchmark -P${P} -T${T} -E ${E} -B ${B} -p ${DB_HOME} -V 1 --BCC ${BCC} -b ${bpk} --dd --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_query_workload.txt --dqs --query-stats-path ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_query_stats.txt --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}_output.txt
 			rm ${DB_HOME}-monkey/*
 			rm ${DB_HOME}-monkey-plus/*
 			rm ${DB_HOME}-optimal/*

@@ -3,7 +3,7 @@
 runs=$1
 for i in `seq 1 ${runs}`
 do
-	./exp_query_lat_ribbon_filiter.sh
+	./exp_query_lat_ribbon_filter.sh
 	mkdir -p "output-bpk-ribbon-filter${i}"
 	mv output-bpk-ribbon-filter/*.txt output-bpk-ribbon-filter${i}/
 done

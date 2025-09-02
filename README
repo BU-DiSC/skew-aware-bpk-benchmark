@@ -1,9 +1,0 @@
-TODO 
-(update DB_HOME parameter?)  what experiments can be run using RAM disk?
-add benchmark results comparing read/write speed between our SSD and AWS SSDs
-how users can play around with different experiments
-disk size requirement
-different disk for database and experiment execution
-where to look for more detailed experiment results?
-monkey+ -> IdealMonkey
-ulimit -n 65536

@@ -8,8 +8,7 @@ R=1
 bpk_list=("2" "3" "4" "5" "6" "7")
 BCC="524288"
 # Remember to specify a path for your dedicated storage device
-DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
-#DB_HOME="/mnt/ramd/zczhu/db_working_home"
+DB_HOME="${FAST_DB_HOME:-./db_working_home}"
 WORKLOAD_HOME="../workload_generator_scripts"
 Z_list=("0.0" "0.5" "1.0")
 ZD_list=("0" "1")
@@ -24,7 +23,6 @@ do
 		do
 			echo "./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -V 1 --dr --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt"
 			./query_lat_exp -T ${T} -E ${E} --dd -p ${DB_HOME} --iwp ${WORKLOAD_HOME}/ingestion_workload.txt --qwp ${WORKLOAD_HOME}/Z${Z}_ZD${ZD}_mixed_update_query_workload.txt -B ${B} -P ${P} -b ${bpk} --BCC ${BCC} -R ${R} -V 1 --dr --run-stats-op ${OUTPUT_DIR}/Z${Z}_ZD${ZD}_bpk-${bpk}-output.txt
-			rm ${DB_HOME}/*
 			rm ${DB_HOME}-mnemosyne/*
 			rm ${DB_HOME}-mnemosyne-plus/*
 		done

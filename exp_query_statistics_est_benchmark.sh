@@ -6,9 +6,8 @@ T=4
 E=512
 epri=200000
 R=3
-# Remember to specify a path for your RAM disk
-#DB_HOME="/scratchNVM0/zczhu/test_db_dir/db_working_home"
-DB_HOME="/mnt/ramd/zczhu/db_working_home"
+# Remember to specify a path for your RAM disk or FAST SSD
+DB_HOME="${FAST_DB_HOME:-./db_working_home}"
 
 # For figures used in paper
 Z_list=("0.5")

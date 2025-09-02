@@ -8,8 +8,7 @@ R=3
 BCC=131072
 #BCC=262144
 # Remember to specify a path for your dedicated storage device
-DB_HOME="/scratchNVM1/zczhu/test_db_dir/db_working_home"
-#DB_HOME="/mnt/ramd/zczhu/db_working_home"
+DB_HOME="${FAST_DB_HOME:-./db_working_home}"
 throughput_interval=100000
 bpk_list=("2.0" "4.0" "6.0")
 #bpk_list=("20.0")
@@ -26,7 +25,6 @@ do
 	mv throughputs.txt ${dir}/${WORKLOAD_NAME}-bpk-${bpk}_throughputs.txt
 	mv tracked_avg_bpk.txt ${dir}/${WORKLOAD_NAME}-bpk-${bpk}_tracked_avg_bpk.txt
 	
-	rm ${DB_HOME}/*
 	rm ${DB_HOME}-monkey-top-down/*
 	rm ${DB_HOME}-monkey-bottom-up/*
 	rm ${DB_HOME}-mnemosyne/*

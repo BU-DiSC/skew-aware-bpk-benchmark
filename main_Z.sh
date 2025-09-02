@@ -5,6 +5,7 @@ runs=$1
 for i in `seq 1 ${runs}`
 do
 	echo "[Run ${i}] for comparing unnecessary I/Os with different bpk allocation policy"
+        echo "[Run ${i}] ⏳ Preparing workloads ..."
 	cd ../workload_generator_scripts/
 	../workload_generator_scripts/bpk_workload.sh
 	cd -
